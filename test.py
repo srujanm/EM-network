@@ -5,10 +5,11 @@ import h5py, time, argparse, itertools, datetime
 import torch
 import torch.nn as nn
 import torch.utils.data
-from libs import SynapseDataset, collate_fn_test, res_unet, res_unet_plus
-from libs import res_unet_plus_gn
-from libs import res_unet_SE
-from libs import unet_SE_synBN
+from data import BasicDataset, collate_fn_test
+from model import unet_SE_synBN
+
+from libs.sync import UserScatteredDataParallel
+from libs.sync import DataParallelWithCallback
 
 def get_args():
     parser = argparse.ArgumentParser(description='Testing Model')
@@ -81,9 +82,9 @@ def get_input(args, model_io_size, opt='test'):
         print("result shape", result[i].shape)
         print("weight shape", weight[i].shape)
 
-    dataset = SynapseDataset(volume=test_input, label=None, vol_input_size=model_io_size, \
-                             vol_label_size=None, sample_stride=model_io_size/2, \
-                             data_aug=None, mode='test')
+    dataset = BasicDataset(volume=test_input, label=None, vol_input_size=model_io_size, \
+                           vol_label_size=None, sample_stride=model_io_size/2, \
+                           data_aug=None, mode='test')
     # to have evaluation during training (two dataloader), has to set num_worker=0
     SHUFFLE = (opt=='train')
     img_loader =  torch.utils.data.DataLoader(
@@ -92,24 +93,8 @@ def get_input(args, model_io_size, opt='test'):
     return img_loader, result, weight
 
 def blend(sz, opt=0):
-    bw = 0.02 # border weight
-    if opt==0:
-        zz = np.append(np.linspace(1-bw,bw,sz[0]/2), np.linspace(bw,1-bw,sz[0]/2))
-        yy = np.append(np.linspace(1-bw,bw,sz[1]/2), np.linspace(bw,1-bw,sz[1]/2))
-        xx = np.append(np.linspace(1-bw,bw,sz[2]/2), np.linspace(bw,1-bw,sz[2]/2))
-        zv, yv, xv = np.meshgrid(zz, yy, xx, indexing='ij')
-        temp = np.stack([zv, yv, xv], axis=0)
-        ww = 1-np.max(temp, 0)
-
-    elif opt==1:
-        zz = np.append(np.linspace(bw,1-bw,sz[0]/2), np.linspace(bw,1-bw,sz[0]/2))
-        yy = np.append(np.linspace(bw,1-bw,sz[1]/2), np.linspace(bw,1-bw,sz[1]/2))
-        xx = np.append(np.linspace(bw,1-bw,sz[2]/2), np.linspace(bw,1-bw,sz[2]/2))
-        zv, yv, xv = np.meshgrid(zz, yy, xx, indexing='ij')
-        ww = (zv + yv + xv)/3
-
     # Gaussian blending
-    elif opt==2:    
+    if opt==0:    
         zz, yy, xx = np.meshgrid(np.linspace(-1,1,sz[0], dtype=np.float32), 
                                  np.linspace(-1,1,sz[1], dtype=np.float32),
                                  np.linspace(-1,1,sz[2], dtype=np.float32), indexing='ij')
@@ -174,15 +159,11 @@ def main():
 
     print('2. setup model')
     print(args.model)
-    #model = res_unet_SE(in_num=1, out_num=3)  
-    model = res_unet_SE(in_num=1, out_num=3, filters=[32,48,64,80,96], aniso_num=3, groups=16)
 
-    # model = torch.load(args.model)
-    # still some problems in multi-gpu testing
-    if args.num_gpu > 1: model = nn.DataParallel(model, range(args.num_gpu))
+    model = unet_SE_synBN(in_num=1, out_num=3, filters=[32,64,128,256], aniso_num=2)
+    model = DataParallelWithCallback(model, device_ids=range(args.num_gpu))
     model = model.to(device)
     model.load_state_dict(torch.load(args.model))
-    #model = model.to(device)
 
     print('3. start testing')
     test(args, test_loader, result, weight, model, device, model_io_size)

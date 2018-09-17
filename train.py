@@ -1,17 +1,19 @@
 import os, sys; sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
-import pickle, h5py, time, argparse, itertools, datetime
+import h5py, time, argparse, itertools, datetime
+from scipy import ndimage
 
 import torch
 import torch.nn as nn
 import torch.utils.data
-from libs import PolaritySynapseDataset, collate_fn, res_unet, res_unet_plus, res_unet_plus_gn
-from libs import FocalLossMul, WeightedMSE
-from libs import res_unet_plus_polarity, res_unet_SE
+from data import BasicDataset, PolaritySynapseDataset, AffinityDataset, collate_fn
+from model import WeightedMSE
+from model import unet_SE_synBN
+from libs.sync import UserScatteredDataParallel
+from libs.sync import DataParallelWithCallback
 
 # tensorboardX
 from tensorboardX import SummaryWriter
-import torchvision.utils as vutils
 
 def get_args():
     parser = argparse.ArgumentParser(description='Training Synapse Detection Model')
@@ -31,7 +33,7 @@ def get_args():
 
     # model option
     parser.add_argument('-ac','--architecture', help='model architecture')                    
-    parser.add_argument('-ft','--finetune', default=False,
+    parser.add_argument('-ft','--finetune', type=bool, default=False,
                         help='Fine-tune on previous model [Default: False]')
     parser.add_argument('-pm','--pre-model', type=str, default='',
                         help='Pre-trained model path')                  
@@ -57,6 +59,10 @@ def get_args():
                         help='Number of cpu')
     parser.add_argument('-b','--batch-size', type=int,  default=1,
                         help='Batch size')
+
+    # training settings:
+    parser.add_argument('-dw','--distance', default='im_uint8.h5',
+                        help='Loss weight based on distance transform.')
     args = parser.parse_args()
     return args
 
@@ -80,23 +86,30 @@ def get_input(args, model_io_size, opt='train'):
         num_worker = args.num_cpu
         img_name = args.img_name.split('@')
         seg_name = args.seg_name.split('@')
+        #dis_name = args.distance.split('@')
     else:
         dir_name = args.val.split('@')
         num_worker = 1
         img_name = args.img_name_val.split('@')
         seg_name = args.seg_name_val.split('@')
 
+    print(img_name)
+    print(seg_name)
+
     # may use datasets from multiple folders
     # should be either one or the same as dir_name
     seg_name = [dir_name[0] + x for x in seg_name]
     img_name = [dir_name[0] + x for x in img_name]
-    # print(img_name)
-    # print(seg_name)
+    #dis_name = [x for x in dis_name]
+    #print(dis_name)
+    #print(img_name)
+    #print(seg_name)
     
     # 1. load data
+    assert len(img_name)==len(seg_name)
     train_input = [None]*len(img_name)
     train_label = [None]*len(seg_name)
-    assert len(img_name)==len(seg_name)
+    #train_distance = [None]*len(dis_name)
 
     # original image is in [0, 255], normalize to [0, 1]
     for i in range(len(img_name)):
@@ -108,21 +121,22 @@ def get_input(args, model_io_size, opt='train'):
         train_label[i] = np.array(h5py.File(seg_name[i], 'r')['main'])
         train_label[i] = (train_label[i] != 0).astype(np.float32)
         train_input[i] = train_input[i].astype(np.float32)
-        
+        #train_distance[i] = train_distance[i].astype(np.float32)
+    
         assert train_input[i].shape==train_label[i].shape[1:]
-        # print("input type: ", train_input[i].dtype)
         print("synapse pixels: ", np.sum(train_label[i][0]))
         print("volume shape: ", train_input[i].shape)    
 
     data_aug = True
     print('Data augmentation: ', data_aug)
     dataset = PolaritySynapseDataset(volume=train_input, label=train_label, vol_input_size=model_io_size,
-                                 vol_label_size=model_io_size, data_aug = data_aug, mode = 'train')
+                                 vol_label_size=model_io_size, data_aug = data_aug, mode = 'train')                            
     # to have evaluation during training (two dataloader), has to set num_worker=0
     SHUFFLE = (opt=='train')
+    print('Batch size: ', args.batch_size)
     img_loader =  torch.utils.data.DataLoader(
             dataset, batch_size=args.batch_size, shuffle=SHUFFLE, collate_fn = collate_fn,
-            num_workers=args.num_cpu, pin_memory=True)
+            num_workers=num_worker, pin_memory=True)
     return img_loader
 
 def get_logger(args):
@@ -136,38 +150,15 @@ def get_logger(args):
     writer = SummaryWriter('runs/'+log_name)
     return logger, writer
 
-def get_validation(args):
-    dir_name = '/n/coxfs01/zudilin/research/data/JWR/syn_vol1/'
-    val_input_name = dir_name + 'val_input.h5'
-    val_label_name = dir_name + 'val_label.h5'
-    val_input = np.array(h5py.File(val_input_name, 'r')['main'])/255.0 #(z, y, x)
-    val_label = np.array(h5py.File(val_label_name, 'r')['main'])/255.0
-    return val_input, val_label
-
 def train(args, train_loader, model, device, criterion, optimizer, logger, writer):
     # switch to train mode
     model.train()
     volume_id = 0
 
-    # Visualize training procedure
-    val_input, val_label = get_validation(args)
-    val_input = torch.from_numpy(val_input.copy())
-    val_label = torch.from_numpy(val_label.copy())
-    val_input_show = val_input.unsqueeze(1).expand(12, 3, 256, 256) # (z, 3, y, x)
-    val_label_show = val_label.unsqueeze(1).expand(12, 3, 256, 256)
-
-    visual_image = vutils.make_grid(val_input_show, nrow=6, normalize=True, scale_each=True)
-    visual_label = vutils.make_grid(val_label_show, nrow=6, normalize=True, scale_each=True)
-
-    writer.add_image('EM Image', visual_image, 0)
-    writer.add_image('GT Image', visual_label, 0)
-
-    val_model_input = val_input.unsqueeze(0).unsqueeze(0) # (1, 1, 12, 256, 256)
-    val_model_input = val_model_input.float()
-
-    for i, (volume, label, class_weight, weight_factor) in enumerate(train_loader):
+    for _, (volume, label, class_weight, _) in enumerate(train_loader):
         volume_id += args.batch_size
 
+        # if i == 0: print(volume.size())
         # restrict the weight
         # class_weight.clamp(max=1000)
 
@@ -176,38 +167,21 @@ def train(args, train_loader, model, device, criterion, optimizer, logger, write
         volume, label = volume.to(device), label.to(device)
         class_weight = class_weight.to(device)
         output = model(volume)
-        # assert output.size() == label.size()
-        # focal, dice = criterion(output, label, class_weight)
-        # loss = focal + dice
+
         loss = criterion(output, label, class_weight)
+        writer.add_scalar('MSE Loss', loss.item(), volume_id) 
 
         # compute gradient and do Adam step
-        optimizer.zero_grad()       
+        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
         logger.write("[Volume %d] train_loss=%0.4f lr=%.5f\n" % (volume_id, \
                 loss.item(), optimizer.param_groups[0]['lr']))
-        #writer.add_scalar('train_loss', loss.item(), volume_id)
-        #writer.add_scalar('bce_loss', bce.item(), volume_id)
-        #writer.add_scalar('dice_loss', dice.item(), volume_id)
-        #writer.add_scalar('focal_loss', focal.item(), volume_id)
-        writer.add_scalar('mean squared error', loss.item(), volume_id)
 
         # LR update
         #if args.lr > 0:
             #decay_lr(optimizer, args.lr, volume_id, lr_decay[0], lr_decay[1], lr_decay[2])
-        
-        if volume_id % 1000 < args.batch_size:
-            volume = val_model_input.to(device)
-            val_output = model(volume) # (1,3,z,y,x)
-            val_output = val_output.squeeze() # (3,z,y,x)
-            val_output = val_output.transpose(0, 1).cpu().detach() # (z, 3, y, x)
-            volume.cpu().detach()
-            torch.cuda.empty_cache()
-
-            val_output_show = vutils.make_grid(val_output, nrow=6, normalize=True, scale_each=True)
-            writer.add_image('Prediction', val_output_show, volume_id)
         
         if volume_id % args.volume_save < args.batch_size or volume_id >= args.volume_total:
             torch.save(model.state_dict(), args.output+('/volume_%d.pth' % (volume_id)))
@@ -226,38 +200,22 @@ def main():
     train_loader = get_input(args, model_io_size, 'train')
 
     print('2.0 setup model')
-    #model = res_unet_plus_polarity(in_num=1, out_num=3)  
-    model = res_unet_SE(in_num=1, out_num=3)
-
-    if args.num_gpu > 1: model = nn.DataParallel(model, range(args.num_gpu))
+    model = unet_SE_synBN(in_num=1, out_num=3, filters=[32,64,128,256], aniso_num=2)
+    model = DataParallelWithCallback(model, device_ids=range(args.num_gpu))
     model = model.to(device)
 
     print('Fine-tune? ', bool(args.finetune))
     if bool(args.finetune):
-        #model.load_state_dict(torch.load(args.pre_model))
-        updated_params = torch.load(args.pre_model)
-        new_params = model.state_dict()
-        new_params.update(updated_params)
-        model.load_state_dict(new_params)
+        model.load_state_dict(torch.load(args.pre_model))
         print('fine-tune on previous model:')
         print(args.pre_model)
             
     print('2.1 setup loss function')
-    # if args.loss == 1:
-    #     criterion = WeightedBCELoss()
-    # elif args.loss == 2:    
-    #     criterion = BCLoss()
-    # elif args.loss == 3:
-    #     criterion = FocalLoss()
-    # elif args.loss == 3:
-    #     criterion = BCLoss_focal(smooth=100.0)
-    # print('Type of loss function: ', args.loss)
-    criterion = WeightedMSE()
-
+    criterion = WeightedMSE()   
+ 
     print('3. setup optimizer')
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999), 
-                                 eps=1e-08, weight_decay=1e-7, amsgrad=True)
-    #optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.95)
+                                 eps=1e-08, weight_decay=1e-6, amsgrad=True)
 
     print('4. start training')
     train(args, train_loader, model, device, criterion, optimizer, logger, writer)

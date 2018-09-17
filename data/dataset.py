@@ -26,7 +26,7 @@ def cropVolumeMul(data, sz, st=[0,0,0]): # C*D*W*H, for multi-channel input
 
 # -- 1.0 dataset -- 
 # dataset class for synaptic cleft inputs
-class SynapseDataset(torch.utils.data.Dataset):
+class BasicDataset(torch.utils.data.Dataset):
     # assume for test, no warping [hassle to warp it back..]
     def __init__(self,
                  volume, label=None,
@@ -189,92 +189,10 @@ class SynapseDataset(torch.utils.data.Dataset):
         pos[1:] = [np.random.randint(tmp_size[x]) for x in range(len(tmp_size))]
         return pos    
 
-# -- 1.1 dataset -- 
-# dataset class for refinement
-
-class RefineSynapseDataset(SynapseDataset):
-    # assume for test, no warping [hassle to warp it back..]
-    def __init__(self,
-                 volume, 
-                 label = None,
-                 vol_input_size = (8,64,64),
-                 vol_label_size = None,
-                 sample_stride = (1,1,1),
-                 data_aug = None,
-                 mode = 'train',
-                 prediction = None):
-
-        super().__init__(volume, 
-                         label,
-                         vol_input_size,
-                         vol_label_size,
-                         sample_stride,
-                         data_aug,
-                         mode)
-
-        self.prediction = prediction # RoI for refinement
-        # self.channel = channel
-
-    def __getitem__(self, index):
-
-        if self.mode == 'train':
-            # 1. get volume size
-            vol_size = self.vol_input_size
-            # if self.data_aug is not None: # augmentation
-            #     self.data_aug.getParam() # get augmentation parameter
-            #     vol_size = self.data_aug.aug_warp[0]
-            # train: random sample based on vol_size
-            # test: sample based on index
-
-            seed = np.random.RandomState(index)
-            while True:
-                pos = self.getPosSeed(vol_size, seed)
-                roi = cropVolume(self.prediction[pos[0]], vol_size, pos[1:])
-                if np.sum(roi) >= 1000: break
-
-            # 2. get input volume
-            out_input = cropVolume(self.input[pos[0]], vol_size, pos[1:])
-            out_label = cropVolume(self.label[pos[0]], vol_size, pos[1:])
-
-            assert roi.shape == out_input.shape
-            # 3. augmentation
-            # if self.data_aug is not None: # augmentation
-            #     out_input, out_label = self.data_aug.augment(out_input, out_label)
-
-            # 4. class weight
-            # add weight to classes to handle data imbalance
-            # match input tensor shape
-            out_input = torch.Tensor(out_input)
-            out_label = torch.Tensor(out_label)
-            roi = torch.Tensor(roi)
-
-            weight_factor = out_label.float().sum() / roi.float().sum()
-            weight_factor = torch.clamp(weight_factor, min=1e-4)
-            # the fraction of synaptic cleft pixels, can be 0
-            weight = out_label*(1-weight_factor)/weight_factor + (1-out_label)*roi
-
-            # include the channel dimension
-            out_input = out_input.unsqueeze(0)
-            out_label = out_label.unsqueeze(0)
-            weight = weight.unsqueeze(0)
-            roi = roi.unsqueeze(0)
-
-            return out_input, out_label, weight, weight_factor, roi
-
-        elif self.mode == 'test':
-            # 1. get volume size
-            vol_size = self.vol_input_size  
-            # test mode
-            pos = self.getPosTest(index)
-            out_input = cropVolume(self.input[pos[0]], vol_size, pos[1:])
-            out_input = torch.Tensor(out_input)
-
-            return pos, out_input
-
 # -- 1.2 dataset -- 
 # dataset class for polarity input
 
-class PolaritySynapseDataset(SynapseDataset):
+class PolaritySynapseDataset(BasicDataset):
     def __init__(self,
                  volume, label=None,
                  vol_input_size = (8,64,64),
@@ -388,227 +306,27 @@ class PolaritySynapseDataset(SynapseDataset):
             out_input = torch.Tensor(out_input)
             out_input = out_input.unsqueeze(0)
 
-            return pos, out_input 
-
-# -- 1.3 dataset -- 
-# dataset class with distance weight
-
-class DistanceSynapseDataset(SynapseDataset):
-    def __init__(self,
-                 volume, 
-                 label = None,
-                 vol_input_size = (8,64,64),
-                 vol_label_size = None,
-                 sample_stride = (1,1,1),
-                 data_aug = None,
-                 mode = 'train',
-                 distance = None):
-
-        super().__init__(volume, 
-                         label,
-                         vol_input_size,
-                         vol_label_size,
-                         sample_stride,
-                         data_aug,
-                         mode)
-
-        self.distance = distance # distance transform matrix for assign weights
-
-    def distance_to_weight(self, distance, opt=0):
-        if opt == 0:
-            scale_factor = 100.0
-            weight = distance / scale_factor
-
-        elif opt == 1:  
-            weight = torch.log(distance + 1) + 1
-
-        elif opt == 2:
-            s1, s2 = 50.0, 100.0
-            weight = s2 * torch.tanh(distance / s1) + 1
-
-        weight = torch.clamp(weight, min=1)
-        return weight      
-
-    def __getitem__(self, index):
-
-        if self.mode == 'train':
-            # 1. get volume size
-            vol_size = self.vol_input_size
-            # if self.data_aug is not None: # augmentation
-            #     self.data_aug.getParam() # get augmentation parameter
-            #     vol_size = self.data_aug.aug_warp[0]
-            # train: random sample based on vol_size
-            # test: sample based on index
-
-            # reject no-synapse samples with a probability of p 
-            seed = np.random.RandomState(index)
-            while True:
-                pos = self.getPosSeed(vol_size, seed)
-                out_label = cropVolume(self.label[pos[0]], vol_size, pos[1:])
-                if np.sum(out_label) > 100:
-                    break
-                else:
-                    if random.random() > 0.8:
-                        break       
-
-            # pos = self.getPos(vol_size, index)
-
-            # 2. get input volume
-            out_input = cropVolume(self.input[pos[0]], vol_size, pos[1:])
-            distance_volume = cropVolume(self.distance[pos[0]], vol_size, pos[1:])
-
-            # 3. augmentation
-            if self.data_aug: # augmentation
-                #if random.random() > 0.5:
-                #    out_input, out_label = apply_elastic_transform(out_input, out_label)    
-                out_input, out_label, distance_volume = self.simple_aug.multi_mask([out_input, out_label, distance_volume])
-                out_input = self.intensity_aug.augment(out_input)
-                out_input = apply_deform(out_input)
-            
-            # 4. class weight
-            # add weight to classes to handle data imbalance
-            # match input tensor shape
-            out_input = torch.from_numpy(out_input.copy())
-            out_label = torch.from_numpy(out_label.copy())
-            distance_volume = torch.from_numpy(distance_volume.copy())
-            #distance_weight = self.distance_to_weight(distance_volume, opt=0)
-
-            weight_factor = out_label.float().sum() / torch.prod(torch.tensor(out_label.size()).float())
-            weight_factor = torch.clamp(weight_factor, min=1e-4)
-            # the fraction of synaptic cleft pixels, can be 0
-            weight = out_label*(1-weight_factor)/weight_factor + (1-out_label) 
-
-            # include the channel dimension
-            out_input = out_input.unsqueeze(0)
-            out_label = out_label.unsqueeze(0)
-            distance_volume = distance_volume.unsqueeze(0)
-            weight = weight.unsqueeze(0)
-
-            return out_input, out_label, weight, distance_volume, weight_factor
-
-        elif self.mode == 'test':
-            # 1. get volume size
-            vol_size = self.vol_input_size  
-            # test mode
-            pos = self.getPosTest(index)
-            out_input = cropVolume(self.input[pos[0]], vol_size, pos[1:])
-            out_input = torch.Tensor(out_input)
-            out_input = out_input.unsqueeze(0)
-
-            return pos, out_input      
-
-# -- 1.4 dataset -- 
-# dataset class with multi-task learning
-
-class MultitaskSynapseDataset(DistanceSynapseDataset):
-    # class for multi-task inputs
-    def __init__(self,
-                 volume, 
-                 label = None,
-                 vol_input_size = (8,64,64),
-                 vol_label_size = None,
-                 sample_stride = (1,1,1),
-                 data_aug = None,
-                 mode = 'train',
-                 distance = None,
-                 mask100 = None,
-                 mask200 = None):
-
-        super().__init__(volume, 
-                         label,
-                         vol_input_size,
-                         vol_label_size,
-                         sample_stride,
-                         data_aug,
-                         mode,
-                         distance)
-
-        self.mask100 = mask100
-        self.mask200 = mask200                 
-
-    def mask_to_weight(self, mask, distance):
-        assert mask.size() == distance.size()
-        weight_factor = mask.float().sum() / torch.prod(torch.tensor(mask.size()).float())
-        weight_factor = torch.clamp(weight_factor, min=1e-4)
-        weight = mask * (1-weight_factor)/weight_factor + (1-mask) * distance 
-        return weight
-
-    def __getitem__(self, index):
-
-        if self.mode == 'train':
-            # 1. get volume size
-            vol_size = self.vol_input_size
-
-            # reject no-synapse samples with a probability of p (0.75)
-            seed = np.random.RandomState(index)
-            while True:
-                pos = self.getPosSeed(vol_size, seed)
-                out_label = cropVolume(self.label[pos[0]], vol_size, pos[1:])
-                if np.sum(out_label) > 100:
-                    break
-                else:
-                    if random.random() > 0.75:
-                        break       
-
-            # pos = self.getPos(vol_size, index)
-
-            # 2. get input volume
-            out_input = cropVolume(self.input[pos[0]], vol_size, pos[1:])
-            distance_volume = cropVolume(self.distance[pos[0]], vol_size, pos[1:])
-            mask100_vol = cropVolume(self.mask100[pos[0]], vol_size, pos[1:])
-            mask200_vol = cropVolume(self.mask200[pos[0]], vol_size, pos[1:])
-
-            # 3. augmentation
-            if self.data_aug: # augmentation
-                #if random.random() > 0.5:
-                #    out_input, out_label = apply_elastic_transform(out_input, out_label)
-                all_inputs = [out_input, out_label, distance_volume, mask100_vol, mask200_vol]
-                out_input, out_label, distance_volume, mask100_vol, mask200_vol = self.simple_aug.multi_mask(all_inputs)
-                out_input = self.intensity_aug.augment(out_input)
-                out_input = apply_deform(out_input)
-            
-            # 4. class weight
-            # add weight to classes to handle data imbalance
-            # match input tensor shape
-            out_input = torch.from_numpy(out_input.copy())
-            out_label = torch.from_numpy(out_label.copy())
-            distance_volume = torch.from_numpy(distance_volume.copy())
-            distance_weight = self.distance_to_weight(distance_volume, opt=0)
-
-            # multi-task target
-            mask100_out = mask100_vol[:, ::2, ::2] # 2x down-sample
-            mask200_out = mask200_vol[:, ::4, ::4] # 4x down-sample
-            mask100_out = torch.from_numpy(mask100_out.copy())
-            mask200_out = torch.from_numpy(mask200_out.copy())
-
-            weight = self.mask_to_weight(out_label, distance_weight)
-            weight100 = self.mask_to_weight(mask100_out, distance_weight[:, ::2, ::2])
-            weight200 = self.mask_to_weight(mask200_out, distance_weight[:, ::4, ::4])
-
-            # include the channel dimension
-            out_input = out_input.unsqueeze(0)
-            out_label = out_label.unsqueeze(0)
-            weight = weight.unsqueeze(0)
-
-            # multi-task label
-            mask100_out = mask100_out.unsqueeze(0)
-            mask200_out = mask200_out.unsqueeze(0)
-            weight100 = weight100.unsqueeze(0)
-            weight200 = weight200.unsqueeze(0)
-
-            return out_input, out_label, weight, mask100_out, mask200_out, weight100, weight200
-
-        elif self.mode == 'test':
-            # 1. get volume size
-            vol_size = self.vol_input_size  
-            # test mode
-            pos = self.getPosTest(index)
-            out_input = cropVolume(self.input[pos[0]], vol_size, pos[1:])
-            out_input = torch.Tensor(out_input)
-            out_input = out_input.unsqueeze(0)
-
             return pos, out_input     
 
+class AffinityDataset(BasicDataset):
+    def __init__(self,
+                 volume, label=None,
+                 vol_input_size = (8,64,64),
+                 vol_label_size = None,
+                 sample_stride = (1,1,1),
+                 data_aug = False,
+                 mode = 'train'):
+
+        super().__init__(volume, 
+                         label,
+                         vol_input_size,
+                         vol_label_size,
+                         sample_stride,
+                         data_aug,
+                         mode)  
+
+    def __getitem__(self, index):                     
+        pass
 
 # -- 2. misc --
 # for dataloader
@@ -622,54 +340,10 @@ def collate_fn(batch):
 
     weight_factor = np.stack(weight_factor, 0)
 
-    return out_input, out_label, weights, weight_factor
-
-def collate_fn_dist(batch):
-    "Puts each data field into a tensor with outer dimension batch size"
-    out_input, out_label, weights, distance_volume, weight_factor = zip(*batch)
-    out_input = torch.stack(out_input, 0)
-    out_label = torch.stack(out_label, 0)
-    distance_volume = torch.stack(distance_volume, 0)
-    weights = torch.stack(weights, 0)
-
-    weight_factor = np.stack(weight_factor, 0)
-
-    return out_input, out_label, weights, distance_volume, weight_factor    
+    return out_input, out_label, weights, weight_factor  
 
 def collate_fn_test(batch):
     pos, out_input = zip(*batch)
     test_sample = torch.stack(out_input, 0)
 
     return pos, test_sample
-
-def collate_fn_refine(batch):
-    "Puts each data field into a tensor with outer dimension batch size"
-    out_input, out_label, weights, weight_factor, roi= zip(*batch)
-    out_input = torch.stack(out_input, 0)
-    out_label = torch.stack(out_label, 0)
-    weights = torch.stack(weights, 0)
-    roi = torch.stack(roi, 0)
-
-    weight_factor = np.stack(weight_factor, 0)
-
-    return out_input, out_label, weights, weight_factor, roi   
-
-def collate_fn_refine_test(batch):
-    pos, out_input = zip(*batch)
-    test_sample = torch.stack(out_input, 0)   
-
-    return pos, test_sample 
-
-def collate_multitask(batch):
-    "Multi-task collate fn"
-    out_input, out_label, weight, mask100_out, mask200_out, weight100, weight200 = zip(*batch)
-    out_input = torch.stack(out_input, 0)
-    out_label = torch.stack(out_label, 0)
-    weight = torch.stack(weight, 0)
-
-    mask100_out = torch.stack(mask100_out, 0)
-    mask200_out = torch.stack(mask200_out, 0)
-    weight100 = torch.stack(weight100, 0)
-    weight200 = torch.stack(weight200, 0)
-
-    return out_input, out_label, weight, mask100_out, mask200_out, weight100, weight200
