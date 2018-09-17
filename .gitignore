@@ -1,0 +1,17 @@
+# Important
+outputs/
+logs/
+runs/
+*.h5
+*.hdf
+*.sh
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# others
