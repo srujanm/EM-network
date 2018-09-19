@@ -2,7 +2,7 @@ import torch
 import math
 import torch.nn as nn
 import torch.nn.functional as F
-from .sync import SynchronizedBatchNorm1d, SynchronizedBatchNorm3d
+from libs.sync import SynchronizedBatchNorm1d, SynchronizedBatchNorm3d
 
 def conv3d_pad(in_planes, out_planes, kernel_size=(3,3,3), stride=1, 
                dilation=(1,1,1), padding=(1,1,1), bias=False):
