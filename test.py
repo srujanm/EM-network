@@ -110,7 +110,7 @@ def test(args, test_loader, result, weight, model, device, model_io_size):
     # switch to eval mode
     model.eval()
     volume_id = 0
-    ww = blend(model_io_size, opt=2)
+    ww = blend(model_io_size, opt=0)
 
     start = time.time()
     with torch.no_grad():
