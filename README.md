@@ -1,6 +1,4 @@
 # Deep Learning Models for Connectomics with EM images
-
-This repository is a re-implementation of [Synapse-unet](https://github.com/zudi-lin/synapse-unet) (in Keras) for Synapse Polarity Prediction in electron microscopy (EM) images using PyTorch. However, it contains some enhancements of the original model:
 ----------------------------
 
 ## Installation
