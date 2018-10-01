@@ -75,9 +75,6 @@ optional arguments:
 Run `evaluation.py -p PREDICTION -g GROUND_TRUTH`.
 The evaluation script will count the number of false positive and false negative pixels based on the evaluation metric from [CREMI challenge](https://cremi.org/metrics/). Synaptic clefts IDs are NOT considered in the evaluation matric. The inputs will be converted to binary masks.
 
-
-## License
-This project is licensed under the MIT License - see the [LICENSE](https://github.com/zudi-lin/synapse_pytorch/blob/master/LICENSE) file for details.# EM-network
 =======
 
 ## License
