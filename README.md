@@ -1,16 +1,13 @@
 # Deep Learning Models for Connectomics with EM images
 
-* Add residual blocks to the orginal unet.
-* Change concatenation to summation in the expansion path.
-* Support training and testing on multi-GPUs.
-
+This repository is a re-implementation of [Synapse-unet](https://github.com/zudi-lin/synapse-unet) (in Keras) for Synapse Polarity Prediction in electron microscopy (EM) images using PyTorch. However, it contains some enhancements of the original model:
 ----------------------------
 
 ## Installation
 
-* Clone this repository : `git clone --recursive https://github.com/zudi-lin/synapse_pytorch.git`
+* Clone this repository : `git clone --recursive https://github.com/zudi-lin/EM-network.git`
 * Download and install [Anaconda](https://www.anaconda.com/download/) (Python 3.6 version).
-* Create a conda environment :  `conda env create -f synapse_pytorch/envs/py3_pytorch.yml`
+* Create a conda environment :  `conda env create -f EM-network/envs/py3_pytorch.yml`
 
 ## Dataset
 
@@ -20,7 +17,6 @@ Training and testing data comes from MICCAI Challenge on Circuit Reconstruction 
 
 ### Command
 
-* Activate previously created conda environment : `source activate ins-seg-pytorch`.
 * Run `train.py`.
 
 ```
@@ -84,3 +80,9 @@ The evaluation script will count the number of false positive and false negative
 
 ## License
 This project is licensed under the MIT License - see the [LICENSE](https://github.com/zudi-lin/synapse_pytorch/blob/master/LICENSE) file for details.# EM-network
+=======
+
+## License
+This project is licensed under the MIT License - see the [LICENSE](https://github.com/zudi-lin/synapse_pytorch/blob/master/LICENSE) file for details.
+
+
