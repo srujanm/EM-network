@@ -341,7 +341,6 @@ class AffinityDataset(BasicDataset):
         self.label = [None] * num_vol
 
         for idx in range(num_vol):
-            assert label[idx].ndim == 4
             self.label_pos[idx] = label[idx][0, :, :, :]
             self.label_neg[idx] = label[idx][1, :, :, :]
             self.label[idx] = self.label_pos[idx] + self.label_neg[idx]

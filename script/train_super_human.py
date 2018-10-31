@@ -113,7 +113,7 @@ def get_input(args, model_io_size, opt='train'):
         train_input[i] = train_input[i].astype(np.float32)
         # train_distance[i] = train_distance[i].astype(np.float32)
 
-        assert train_input[i].shape == train_label[i].shape[1:]
+        assert train_input[i].shape == train_label[i].shape
         print("Affinity pixels: ", np.sum(train_label[i][0]))
         print("Volume shape: ", train_input[i].shape)
 
