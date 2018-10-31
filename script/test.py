@@ -11,33 +11,35 @@ from em_net.model import unet_SE_synBN
 from em_net.libs.sync import UserScatteredDataParallel
 from em_net.libs.sync import DataParallelWithCallback
 
+
 def get_args():
     parser = argparse.ArgumentParser(description='Testing Model')
     # I/O
-    parser.add_argument('-t','--train',  default='/n/coxfs01/',
+    parser.add_argument('-t', '--train',  default='/n/coxfs01/',
                         help='input folder (train)')
-    parser.add_argument('-v','--val',  default='',
+    parser.add_argument('-v', '--val',  default='',
                         help='input folder (test)')
-    parser.add_argument('-dn','--img-name',  default='im_uint8.h5',
+    parser.add_argument('-dn', '--img-name',  default='im_uint8.h5',
                         help='image data')
-    parser.add_argument('-o','--output', default='result/train/',
+    parser.add_argument('-o', '--output', default='result/train/',
                         help='output path')
-    parser.add_argument('-mi','--model-input', type=str,  default='31,204,204')
+    parser.add_argument('-mi', '--model-input', type=str,  default='31,204,204')
 
     # machine option
-    parser.add_argument('-g','--num-gpu', type=int,  default=1,
+    parser.add_argument('-g', '--num-gpu', type=int,  default=1,
                         help='number of gpu')
-    parser.add_argument('-c','--num-cpu', type=int,  default=1,
+    parser.add_argument('-c', '--num-cpu', type=int,  default=1,
                         help='number of cpu')
-    parser.add_argument('-b','--batch-size', type=int,  default=1,
+    parser.add_argument('-b', '--batch-size', type=int,  default=1,
                         help='batch size')
-    parser.add_argument('-m','--model', help='model used for test')
+    parser.add_argument('-m', '--model', help='model used for test')
 
     # model option
-    parser.add_argument('-ac','--architecture', help='model architecture')
+    parser.add_argument('-ac', '--architecture', help='model architecture')
 
     args = parser.parse_args()
     return args
+
 
 def init(args):
     sn = args.output+'/'
@@ -50,6 +52,7 @@ def init(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     return model_io_size, device
+
 
 def get_input(args, model_io_size, opt='test'):
     # two dataLoader, can't be both multiple-cpu (pytorch issue)
@@ -77,8 +80,8 @@ def get_input(args, model_io_size, opt='test'):
         result[i] = np.zeros(test_input[i].shape)
         weight[i] = np.zeros(test_input[i].shape)
 
-        result[i] = np.stack([result[i] for x in range(3)])
-        #weight[i] = np.stack([weight[i] for x in range(3)])
+        result[i] = np.stack([result[i] for _ in range(3)])
+        # weight[i] = np.stack([weight[i] for x in range(3)])
         print("result shape", result[i].shape)
         print("weight shape", weight[i].shape)
 
@@ -86,18 +89,19 @@ def get_input(args, model_io_size, opt='test'):
                            vol_label_size=None, sample_stride=model_io_size/2, \
                            data_aug=None, mode='test')
     # to have evaluation during training (two dataloader), has to set num_worker=0
-    SHUFFLE = (opt=='train')
-    img_loader =  torch.utils.data.DataLoader(
-            dataset, batch_size=args.batch_size, shuffle=SHUFFLE, collate_fn = collate_fn_test,
+    shuffle = (opt == 'train')
+    img_loader = torch.utils.data.DataLoader(
+            dataset, batch_size=args.batch_size, shuffle=shuffle, collate_fn = collate_fn_test,
             num_workers=args.num_cpu, pin_memory=True)
     return img_loader, result, weight
 
+
 def blend(sz, opt=0):
     # Gaussian blending
-    if opt==0:    
-        zz, yy, xx = np.meshgrid(np.linspace(-1,1,sz[0], dtype=np.float32), 
-                                 np.linspace(-1,1,sz[1], dtype=np.float32),
-                                 np.linspace(-1,1,sz[2], dtype=np.float32), indexing='ij')
+    if opt == 0:
+        zz, yy, xx = np.meshgrid(np.linspace(-1, 1, sz[0], dtype=np.float32),
+                                 np.linspace(-1, 1, sz[1], dtype=np.float32),
+                                 np.linspace(-1, 1, sz[2], dtype=np.float32), indexing='ij')
 
         dd = np.sqrt(zz*zz + yy*yy + xx*xx)
         sigma, mu = 0.5, 0.0
@@ -105,6 +109,7 @@ def blend(sz, opt=0):
         print('weight shape:', ww.shape)
 
     return ww
+
 
 def test(args, test_loader, result, weight, model, device, model_io_size):
     # switch to eval mode
@@ -169,6 +174,7 @@ def main():
     test(args, test_loader, result, weight, model, device, model_io_size)
   
     print('4. finish testing')
+
 
 if __name__ == "__main__":
     main()

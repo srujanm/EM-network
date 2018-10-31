@@ -741,6 +741,7 @@ def prepare_deform_slice(slice_shape, deformation_strength, iterations):
     
     return flow_x, flow_y, line_mask
 
+
 def deform_2d(image2d, deformation_strength, iterations):
     flow_x, flow_y, line_mask = prepare_deform_slice(image2d.shape,deformation_strength,iterations)
     section = image2d.squeeze()
@@ -752,6 +753,7 @@ def deform_2d(image2d, deformation_strength, iterations):
     section = np.clip(section, 0., 1.)
     section[line_mask] = mean
     return section 
+
 
 def apply_deform(imgs, deformation_strength=0, iterations=50, deform_ratio=0.25):
     '''

@@ -2,7 +2,7 @@ import torch
 import math
 import torch.nn as nn
 import torch.nn.functional as F
-from libs.sync import SynchronizedBatchNorm1d, SynchronizedBatchNorm3d
+from ..libs.sync import SynchronizedBatchNorm1d, SynchronizedBatchNorm3d
 
 from .block import *
 
@@ -16,11 +16,11 @@ class unet_SE_synBN(nn.Module):
         self.aniso_num = aniso_num # the number of anisotropic conv layers
 
         self.downC = nn.ModuleList(
-                  [res_unet_AnisoBlock_dilation(in_num, filters[0])]
-                + [res_unet_AnisoBlock_dilation(filters[x], filters[x+1])
-                      for x in range(self.aniso_num-1)] 
-                + [res_unet_IsoBlock(filters[x], filters[x+1])
-                      for x in range(self.aniso_num-1, self.layer_num-2)]
+                  [ResUNetAnisoBlockDilation(in_num, filters[0])]
+                + [ResUNetAnisoBlockDilation(filters[x], filters[x + 1])
+                   for x in range(self.aniso_num-1)]
+                + [ResUNetIsoBlock(filters[x], filters[x + 1])
+                   for x in range(self.aniso_num-1, self.layer_num-2)]
                       ) 
 
         self.downS = nn.ModuleList(
@@ -30,7 +30,7 @@ class unet_SE_synBN(nn.Module):
                     for x in range(self.aniso_num, self.layer_num-1)]
                 )
 
-        self.center = res_unet_IsoBlock(filters[-2], filters[-1])
+        self.center = ResUNetIsoBlock(filters[-2], filters[-1])
 
         self.upS = nn.ModuleList(
             [nn.Sequential(
@@ -46,11 +46,11 @@ class unet_SE_synBN(nn.Module):
             )
 
         self.upC = nn.ModuleList(
-            [res_unet_IsoBlock(filters[self.layer_num-2-x], filters[self.layer_num-2-x])
-                for x in range(self.layer_num-self.aniso_num-1)]
-          + [res_unet_AnisoBlock_dilation(filters[self.layer_num-2-x], filters[self.layer_num-2-x])
-                for x in range(1, self.aniso_num)]
-          + [res_unet_AnisoBlock_dilation(filters[0], filters[0])]
+            [ResUNetIsoBlock(filters[self.layer_num - 2 - x], filters[self.layer_num - 2 - x])
+             for x in range(self.layer_num-self.aniso_num-1)]
+          + [ResUNetAnisoBlockDilation(filters[self.layer_num - 2 - x], filters[self.layer_num - 2 - x])
+             for x in range(1, self.aniso_num)]
+          + [ResUNetAnisoBlockDilation(filters[0], filters[0])]
             )
 
         self.fconv = conv3d_bn_non(filters[0], out_num, kernel_size=(3,3,3), stride=1, padding=(1,1,1), bias=True)
@@ -85,9 +85,10 @@ class unet_SE_synBN(nn.Module):
         x = self.sigmoid(x)
         return x
 
+
 # model for visualization purpose
 class unet_SE_synBN_visualization(unet_SE_synBN):
-    def __init__(self, in_num=1, out_num=3, filters=[64,96,128,256], aniso_num=2):
+    def __init__(self, in_num=1, out_num=3, filters=(64, 96, 128, 256), aniso_num=2):
         super(unet_SE_synBN_visualization, self).__init__(in_num, 
                                       out_num, filters, aniso_num)  
 
