@@ -365,7 +365,7 @@ class AffinityDataset(BasicDataset):
                 # affinitize(out_input, ret=aff[0, ...], dst=(0, 0, 1))
                 # affinitize(out_input, ret=aff[1, ...], dst=(0, 1, 0))
                 # affinitize(out_input, ret=aff[2, ...], dst=(1, 0, 0))
-                out_label = seg_to_affgraph(out_label, mknhood3d(1)[1:])
+                out_label = seg_to_affgraph(out_label, mknhood3d(1)).astype(np.float32)
                 if random.random() > 0.5:
                     out_input = apply_deform(out_input)
 
