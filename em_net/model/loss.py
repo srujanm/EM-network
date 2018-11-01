@@ -51,7 +51,6 @@ class DiceLoss(_Loss):
         return loss / float(input_y.size()[0])
 
     def dice_loss_batch(self, input_y, target):
-
         iflat = input_y.view(-1)
         tflat = target.view(-1)
         intersection = (iflat * tflat).sum()
@@ -61,16 +60,16 @@ class DiceLoss(_Loss):
         return loss
 
     def forward(self, input_y, target):
-        with torch.no_grad():
-            if not (target.size() == input_y.size()):
-                raise ValueError(
-                    "Target size ({}) must be the same as input size ({})".format(target.size(), input_y.size()))
+        assert target.requires_grad is False
+        if not (target.size() == input_y.size()):
+            raise ValueError(
+                "Target size ({}) must be the same as input size ({})".format(target.size(), input_y.size()))
 
-            if self.reduce:
-                loss = self.dice_loss(input_y, target)
-            else:
-                loss = self.dice_loss_batch(input_y, target)
-            return loss
+        if self.reduce:
+            loss = self.dice_loss(input_y, target)
+        else:
+            loss = self.dice_loss_batch(input_y, target)
+        return loss
 
 
 class WeightedMSE(_Loss):
@@ -86,8 +85,8 @@ class WeightedMSE(_Loss):
         return torch.sum(weight * (input_y - target) ** 2) / norm_term
 
     def forward(self, input_y, target, weight):
-        with torch.no_grad():
-            return self.weighted_mse_loss(input_y, target, weight)
+        assert target.requires_grad is False
+        return self.weighted_mse_loss(input_y, target, weight)
 
 
 # define a customized loss function for future development
@@ -99,8 +98,8 @@ class WeightedBCELoss(_Loss):
         self.reduce = reduce
 
     def forward(self, input_y, target, weight):
-        with torch.no_grad():
-            return F.binary_cross_entropy(input_y, target, weight, self.size_average, self.reduce)
+        assert target.requires_grad is False
+        return F.binary_cross_entropy(input_y, target, weight, self.size_average, self.reduce)
 
 
 # Weighted binary cross entropy + Dice loss
@@ -126,11 +125,11 @@ class BCLoss(_Loss):
         """
         Weighted binary classification loss + Dice coefficient loss
         """
-        with torch.no_grad():
-            loss1 = F.binary_cross_entropy(input_y, target, weight, self.size_average,
-                                       self.reduce)
-            loss2 = self.dice_loss(input_y, target)
-            return loss1, loss2
+        assert target.requires_grad is False
+        loss1 = F.binary_cross_entropy(input_y, target, weight, self.size_average,
+                                   self.reduce)
+        loss2 = self.dice_loss(input_y, target)
+        return loss1, loss2
 
 
 # Focal Loss
@@ -162,13 +161,13 @@ class FocalLoss(_Loss):
         """
         Weighted Focal Loss
         """
-        with torch.no_grad():
-            if not (target.size() == input_y.size()):
-                raise ValueError("Target size ({}) must be the same as input size ({})".format(target.size(),
-                                                                                               input_y.size()))
+        assert target.requires_grad is False
+        if not (target.size() == input_y.size()):
+            raise ValueError("Target size ({}) must be the same as input size ({})".format(target.size(),
+                                                                                           input_y.size()))
 
-            loss = self.focal_loss(input_y, target, weight)
-            return loss
+        loss = self.focal_loss(input_y, target, weight)
+        return loss
 
 
 # Focal Loss + Dice Loss
@@ -214,14 +213,14 @@ class BCLoss_focal(_Loss):
         """
         Weighted binary classification loss + Dice coefficient loss
         """
-        with torch.no_grad():
-            if not (target.size() == input_y.size()):
-                raise ValueError(
-                    "Target size ({}) must be the same as input size ({})".format(target.size(), input_y.size()))
+        assert target.requires_grad is False
+        if not (target.size() == input_y.size()):
+            raise ValueError(
+                "Target size ({}) must be the same as input size ({})".format(target.size(), input_y.size()))
 
-            loss1 = self.focal_loss(input_y, target, weight)
-            loss2 = self.dice_loss(input_y, target)
-            return loss1, loss2
+        loss1 = self.focal_loss(input_y, target, weight)
+        loss2 = self.dice_loss(input_y, target)
+        return loss1, loss2
 
 
 # Focal Loss
@@ -257,10 +256,10 @@ class FocalLossMul(_Loss):
         """
         Weighted Focal Loss
         """
-        with torch.no_grad():
-            if not (target.size() == input_y.size()):
-                raise ValueError("Target size ({}) must be the same as input size ({})".format(target.size(),
-                                                                                               input_y.size()))
+        assert target.requires_grad is False
+        if not (target.size() == input_y.size()):
+            raise ValueError("Target size ({}) must be the same as input size ({})".format(target.size(),
+                                                                                           input_y.size()))
 
-            loss = self.focal_loss(input_y, target, weight)
-            return loss
+        loss = self.focal_loss(input_y, target, weight)
+        return loss

@@ -382,7 +382,8 @@ class AffinityDataset(BasicDataset):
 
             # include the channel dimension
             out_input = out_input.unsqueeze(0)
-            weight = weight.unsqueeze(0)
+            # weight = weight.unsqueeze(0)
+            # out_label = out_label.unsqueeze(0)
             # class_weight = torch.Tensor([(1-weight_factor)/weight_factor, (1-weight_factor)/weight_factor, 1])
 
             return out_input, out_label, weight, weight_factor
