@@ -358,7 +358,12 @@ class AffinityDataset(BasicDataset):
                 out_input, out_label = self.simple_aug.multi_mask([out_input, out_label])
                 # if random.random() > 0.75:
                 #     out_input = self.intensity_aug.augment(out_input)
-                out_label = affinitize(out_label)
+                shape = (3,) + out_label.shape[-3:]
+                aff = np.zeros(shape, dtype='float32')
+                affinitize(out_input, ret=aff[0, ...], dst=(0, 0, 1))
+                affinitize(out_input, ret=aff[1, ...], dst=(0, 1, 0))
+                affinitize(out_input, ret=aff[2, ...], dst=(1, 0, 0))
+                out_label = aff
                 if random.random() > 0.5:
                     out_input = apply_deform(out_input)
 
