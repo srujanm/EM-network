@@ -3,6 +3,7 @@
 import torch.nn as nn
 import torch.nn.functional as F
 from .block import merge_crop, unet_m2_conv
+import torch
 
 
 class UNet3DM1(nn.Module):  # deployed Toufiq model
@@ -85,7 +86,7 @@ class UNet3DM1(nn.Module):  # deployed Toufiq model
         for i in range(self.depth):
             x = merge_crop(down_u[self.depth - 1 - i], self.upS[i](x))
             x = self.upC[i](x)
-        return F.sigmoid(self.final(x))
+        return torch.sigmoid(self.final(x))
 
 
 class UNetM2BasicBlock(nn.Module):
@@ -153,7 +154,7 @@ class UNet3DPniM2(nn.Module):  # deployed PNI model
         for i in range(self.res_num + 1):
             x = down_u[self.res_num - i] + self.upS[i](x)
             x = self.upC[i](x)
-        return F.sigmoid(x)
+        return torch.sigmoid(x)
 
 
 class UNet3DM2_V2(nn.Module):
@@ -204,7 +205,7 @@ class UNet3DM2_V2(nn.Module):
             x = down_u[self.res_num - i] + self.upS[i](x)
             x = self.upC[i](x)
         x = self.upC[-1](x)  # last 1x5x5
-        return F.sigmoid(x)
+        return torch.sigmoid(x)
 
 
 class FFNBasicBlock(nn.Module):

@@ -95,6 +95,8 @@ class WeightedBCELoss(_Loss):
 
     def __init__(self, size_average=True, reduce=True):
         super(WeightedBCELoss, self).__init__(size_average, reduce)
+        self.size_average = size_average
+        self.reduce = reduce
 
     def forward(self, input_y, target, weight):
         with torch.no_grad():
