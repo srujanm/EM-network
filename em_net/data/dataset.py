@@ -8,7 +8,8 @@ import torch.utils.data
 # use image augmentation
 from .augmentation import IntensityAugment, simpleaug_train_produce
 from .augmentation import apply_elastic_transform, apply_deform
-from em_segLib.aff_util import affinitize
+from em_segLib.aff_util import seg_to_affgraph
+from em_segLib.seg_util import mknhood3d
 
 # -- 0. utils --
 def count_volume(data_sz, vol_sz, stride):
@@ -358,12 +359,13 @@ class AffinityDataset(BasicDataset):
                 out_input, out_label = self.simple_aug.multi_mask([out_input, out_label])
                 # if random.random() > 0.75:
                 #     out_input = self.intensity_aug.augment(out_input)
-                shape = (3,) + out_label.shape[-3:]
-                aff = np.zeros(shape, dtype='float32')
-                affinitize(out_input, ret=aff[0, ...], dst=(0, 0, 1))
-                affinitize(out_input, ret=aff[1, ...], dst=(0, 1, 0))
-                affinitize(out_input, ret=aff[2, ...], dst=(1, 0, 0))
-                out_label = aff
+
+                # shape = (3,) + out_label.shape[-3:]
+                # aff = np.zeros(shape, dtype='float32')
+                # affinitize(out_input, ret=aff[0, ...], dst=(0, 0, 1))
+                # affinitize(out_input, ret=aff[1, ...], dst=(0, 1, 0))
+                # affinitize(out_input, ret=aff[2, ...], dst=(1, 0, 0))
+                out_label = seg_to_affgraph(out_label, mknhood3d(1)[1:])
                 if random.random() > 0.5:
                     out_input = apply_deform(out_input)
 
