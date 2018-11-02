@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.utils.data
 from em_net.data import AffinityDataset, collate_fn_test
 from em_net.model.model_seg import UNet3DPniM2
-
+from em_segLib.seg_eval import adapted_rand
 from em_net.libs.sync import DataParallelWithCallback
 
 
@@ -20,7 +20,7 @@ def get_args():
                         help='input folder (test)')
     parser.add_argument('-dn', '--img-name', default='im_uint8.h5',
                         help='image data')
-    parser.add_argument('-o', '--output', default='result/train/',
+    parser.add_argument('-o', '--output', default='result/test/',
                         help='output path')
     parser.add_argument('-mi', '--model-input', type=str, default='31,204,204')
 
@@ -118,13 +118,14 @@ def test(args, test_loader, result, weight, model, device, model_io_size):
 
     start = time.time()
     with torch.no_grad():
-        for i, (pos, volume) in enumerate(test_loader):
+        for i, (pos, volume, gt) in enumerate(test_loader):
             volume_id += args.batch_size
             print('volume_id:', volume_id)
 
             # for gpu computing
             volume = volume.to(device)
             output = model(volume)
+            print(i, adapted_rand(gt, output))
             if i == 0:
                 print("volume size:", volume.size())
                 print("output size:", output.size())

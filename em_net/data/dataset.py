@@ -397,10 +397,14 @@ class AffinityDataset(BasicDataset):
             # test mode
             pos = self.get_pos_test(index)
             out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
+            out_label = crop_volume(self.label[pos[0]], vol_size, pos[1:])
+            out_label = genSegMalis(out_label, 1)
+            out_label = seg_to_affgraph(out_label, nhood=mknhood3d(1))
             out_input = torch.Tensor(out_input)
+            out_label = torch.Tensor(out_label)
             out_input = out_input.unsqueeze(0)
 
-            return pos, out_input
+            return pos, out_input, out_label
 
 # -- 2. misc --
 # for dataloader
