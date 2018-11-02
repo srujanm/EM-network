@@ -20,6 +20,8 @@ def get_args():
                         help='input folder (test)')
     parser.add_argument('-dn', '--img-name', default='im_uint8.h5',
                         help='image data')
+    parser.add_argument('-ln', '--seg-name', default='seg-groundtruth2-malis.h5',
+                        help='Ground-truth label path')
     parser.add_argument('-o', '--output', default='result/test/',
                         help='output path')
     parser.add_argument('-mi', '--model-input', type=str, default='31,204,204')
@@ -59,7 +61,7 @@ def get_input(args, model_io_size, opt='test'):
     dir_name = args.train.split('@')
     num_worker = args.num_cpu
     img_name = args.img_name.split('@')
-
+    gt_name = args.seg_name.split('@')
     # may use datasets from multiple folders
     # should be either one or the same as dir_name
     img_name = [dir_name[0] + x for x in img_name]
@@ -69,10 +71,11 @@ def get_input(args, model_io_size, opt='test'):
     test_input = [None] * len(img_name)
     result = [None] * len(img_name)
     weight = [None] * len(img_name)
-
+    test_label = [None] * len(gt_name)
     # original image is in [0, 255], normalize to [0, 1]
     for i in range(len(img_name)):
         test_input[i] = np.array(h5py.File(img_name[i], 'r')['main']) / 255.0
+        test_label[i] = np.array(h5py.File(gt_name[i], 'r')['main'])
         # test_input[i] = (test_input[i].transpose(2, 1, 0))
         # test_input[i] = np.transpose(test_input[i], (2,0,1))
         print("volume shape: ", test_input[i].shape)
@@ -84,7 +87,7 @@ def get_input(args, model_io_size, opt='test'):
         print("result shape", result[i].shape)
         print("weight shape", weight[i].shape)
 
-    dataset = AffinityDataset(volume=test_input, label=None, vol_input_size=model_io_size,
+    dataset = AffinityDataset(volume=test_input, label=test_label, vol_input_size=model_io_size,
                               vol_label_size=None, sample_stride=model_io_size / 2,
                               data_aug=None, mode='test')
     # to have evaluation during training (two dataloader), has to set num_worker=0
