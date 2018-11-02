@@ -9,7 +9,8 @@ import torch.utils.data
 from .augmentation import IntensityAugment, simpleaug_train_produce
 from .augmentation import apply_elastic_transform, apply_deform
 from em_segLib.aff_util import seg_to_affgraph
-from em_segLib.seg_util import mknhood3d
+from em_segLib.seg_util import mknhood3d, genSegMalis
+
 
 # -- 0. utils --
 def count_volume(data_sz, vol_sz, stride):
@@ -100,7 +101,7 @@ class BasicDataset(torch.utils.data.Dataset):
             # 2. get input volume
             out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
             # out_label = cropVolume(self.label[pos[0]], vol_size, pos[1:])
-
+            out_label = genSegMalis(out_label, 1)
             # 3. augmentation
             if self.data_aug:  # augmentation
                 # if random.random() > 0.5:
@@ -109,7 +110,6 @@ class BasicDataset(torch.utils.data.Dataset):
                 # out_input = self.intensity_aug.augment(out_input)
                 if random.random() > 0.5:
                     out_input = apply_deform(out_input)
-            
             # 4. class weight
             # add weight to classes to handle data imbalance
             # match input tensor shape
@@ -366,6 +366,7 @@ class AffinityDataset(BasicDataset):
                 # affinitize(out_input, ret=aff[1, ...], dst=(0, 1, 0))
                 # affinitize(out_input, ret=aff[2, ...], dst=(1, 0, 0))
                 out_label = seg_to_affgraph(out_label, mknhood3d(1)).astype(np.float32)
+                out_label
                 if random.random() > 0.5:
                     out_input = apply_deform(out_input)
 
