@@ -366,7 +366,6 @@ class AffinityDataset(BasicDataset):
                 # affinitize(out_input, ret=aff[1, ...], dst=(0, 1, 0))
                 # affinitize(out_input, ret=aff[2, ...], dst=(1, 0, 0))
                 out_label = seg_to_affgraph(out_label, mknhood3d(1)).astype(np.float32)
-                out_label
                 if random.random() > 0.5:
                     out_input = apply_deform(out_input)
 
@@ -397,14 +396,10 @@ class AffinityDataset(BasicDataset):
             # test mode
             pos = self.get_pos_test(index)
             out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
-            out_label = crop_volume(self.label[pos[0]], vol_size, pos[1:])
-            out_label = genSegMalis(out_label, 1)
-            out_label = seg_to_affgraph(out_label, nhood=mknhood3d(1))
             out_input = torch.Tensor(out_input)
-            out_label = torch.Tensor(out_label)
             out_input = out_input.unsqueeze(0)
 
-            return pos, out_input, out_label
+            return pos, out_input
 
 # -- 2. misc --
 # for dataloader

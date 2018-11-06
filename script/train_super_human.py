@@ -19,18 +19,19 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def get_args():
-    parser = argparse.ArgumentParser(description='Training Affinity Prediction Model')
+    parser = argparse.ArgumentParser(description='A script for training the PNI 3D UNET model for predicting ' +
+                                                 'affinities.')
     # I/O
-    parser.add_argument('-t', '--train', default='/n/coxfs01/',
-                        help='Input folder (train)')
-    parser.add_argument('-dn', '--img-name', default='im_uint8.h5',
-                        help='tiff Image data path')
-    parser.add_argument('-ln', '--seg-name', default='seg-groundtruth2-malis.h5',
-                        help='Ground-truth label path')
+    parser.add_argument('-tv', '--train-volume', default='train-input.h5',
+                        help='Path to the training volume .h5 file(s).')
+    parser.add_argument('-sv', '--seg-volume', default='train-labels.h5',
+                        help='Path to the training segmentation .h5 file(s), in order of correspondence to the passed' +
+                        'training volumes. The volume\'s affinity will be generated on the fly as test labels.')
     parser.add_argument('-o', '--output', default='result/train/',
-                        help='Output path')
-    parser.add_argument('-mi', '--model-input', type=str, default='31,204,204',
-                        help='I/O size of deep network')
+                        help='Output directory used to save the prediction results as .h5 file(s). The directory is ' +
+                             'automatically created if already not created.')
+    parser.add_argument('-is', '--input-shape', type=str, default='18,160,160',
+                        help="Model's input size (shape) formatted 'z, y, x' with no channel number.")
 
     # model option
     parser.add_argument('-ft', '--finetune', type=bool, default=False,
@@ -39,24 +40,20 @@ def get_args():
                         help='Pre-trained model path')
 
     # optimization option
-    parser.add_argument('-lt', '--loss', type=int, default=1,
-                        help='Loss function')
-    parser.add_argument('-lr', type=float, default=0.0001,
+    parser.add_argument('-lr', type=float, default=0.01,
                         help='Learning rate')
-    parser.add_argument('--volume-total', type=int, default=1000,
+    parser.add_argument('--volume-total', type=int, default=70000,
                         help='Total number of iteration')
     parser.add_argument('--volume-save', type=int, default=100,
-                        help='Number of iteration to save')
+                        help='Number of iterations for the script to save the model.')
     parser.add_argument('-g', '--num-gpu', type=int, default=1,
-                        help='Number of gpu')
-    parser.add_argument('-c', '--num-cpu', type=int, default=1,
-                        help='Number of cpu')
-    parser.add_argument('-b', '--batch-size', type=int, default=1,
-                        help='Batch size')
+                        help='Number of CUDA-enabled graphics cards to be used to train the model.')
+    parser.add_argument('-j', '--num-procs', type=int, default=1,
+                        help='Number of processes to be used for the training data loader. The validation data loader' +
+                        '')
+    parser.add_argument('-bs', '--batch-size', type=int, default=1,
+                        help='Batch size.')
 
-    # training settings:
-    parser.add_argument('-dw', '--distance', default='im_uint8.h5',
-                        help='Loss weight based on distance transform.')
     args = parser.parse_args()
     return args
 
@@ -74,71 +71,91 @@ def init(args):
     return model_io_size, device
 
 
-def get_input(args, model_io_size, opt='train'):
+def check_output(args):
+    """
+    Checks whether the output directory exists. If not, creates it.
+    """
+    # Create the output directory before writing into it.
+    sn = args.output + '/'
+    if not os.path.isdir(sn):
+        os.makedirs(sn)
+        print('Output directory was created.')
+    print('Output directory: {}.'.format(sn))
+
+
+def get_preferred_device(args):
+    if args.num_gpu < 0:
+        raise ValueError("The number of GPUs must be greater than or equal to zero.")
+    return torch.device("cuda" if torch.cuda.is_available() and args.num_gpu > 0 else "cpu")
+
+
+def get_model_input_shape(args):
+    shape = np.array([int(x) for x in args.input_shape.split(',')])
+    print("Model Shape: {}.".format(shape))
+    return shape
+
+
+def get_inputs(args, model_io_size):
     # two dataLoader, can't be both multiple-cpu (pytorch issue)
-
-    if opt == 'train':
-        dir_name = args.train.split('@')
-        num_worker = args.num_cpu
-        img_name = args.img_name.split('@')
-        seg_name = args.seg_name.split('@')
-    else:
-        dir_name = args.val.split('@')
-        num_worker = 1
-        img_name = args.img_name_val.split('@')
-        seg_name = args.seg_name_val.split('@')
-
-    print(img_name)
-    print(seg_name)
+    num_worker = args.num_procs
+    img_name = args.img_name.split('@')
+    seg_name = args.seg_name.split('@')
 
     # may use datasets from multiple folders
     # should be either one or the same as dir_name
-    seg_name = [dir_name[0] + x for x in seg_name]
-    img_name = [dir_name[0] + x for x in img_name]
-    # dis_name = [x for x in dis_name]
-    # print(dis_name)
-    # print(img_name)
-    # print(seg_name)
 
     # 1. load data
     assert len(img_name) == len(seg_name)
     train_input = []
     train_label = []
-    # train_distance = [None]*len(dis_name)
-
     # original image is in [0, 255], normalize to [0, 1]
+    print("Loading volumes...")
     for i in range(len(img_name)):
         train_input.append(np.array(h5py.File(img_name[i], 'r')['main']) / 255.0)
+        print("Loaded {}.".format(img_name[i]))
+        print("Input volume shape: {}".format(img_name[i].shape))
         train_label.append(np.array(h5py.File(seg_name[i], 'r')['main']))
+        print("Loaded {}.".format(seg_name[i]))
+        print("Segmentation shape: {}".format(seg_name[i].shape))
         train_input[i] = train_input[i].astype(np.float32)
-        # train_distance[i] = train_distance[i].astype(np.float32)
 
         assert train_input[i].shape == train_label[i].shape
-        print("Affinity pixels: ", np.sum(train_label[i][0]))
-        print("Volume shape: ", train_input[i].shape)
 
     data_aug = True
-    print('Data augmentation: ', data_aug)
+    print('Data augmentation: {}.'.format(data_aug))
     dataset = AffinityDataset(volume=train_input, label=train_label, vol_input_size=model_io_size,
                               vol_label_size=model_io_size, data_aug=data_aug, mode='train')
     # to have evaluation during training (two dataloader), has to set num_worker=0
-    shuffle = (opt == 'train')
-    print('Batch size: ', args.batch_size)
+    print('Batch size: {}.'.format(args.batch_size))
     img_loader = torch.utils.data.DataLoader(
-        dataset, batch_size=args.batch_size, shuffle=shuffle, collate_fn=collate_fn,
+        dataset, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn,
         num_workers=num_worker, pin_memory=True)
     return img_loader
 
 
-def get_logger(args):
+def load_model(args, device):
+    print(args.model)
+    model = UNet3DPniM2(in_num=1, out_num=3)
+    model = DataParallelWithCallback(model, device_ids=range(args.num_gpu))
+    print("Loading model to device: {}.".format(device))
+    model = model.to(device)
+    print("Finished.")
+    print("Finished loading.")
+    return model
+
+
+def get_loggers(args):
+    # Set loggers names.
     log_name = args.output + '/log'
     date = str(datetime.datetime.now()).split(' ')[0]
     time = str(datetime.datetime.now()).split(' ')[1].split('.')[0]
     log_name += '_approx_' + date + '_' + time
     logger = open(log_name + '.txt', 'w')  # unbuffered, write instantly
+    print("Saving log file in {}.".format(log_name + '.txt'))
 
     # tensorboardX
     writer = SummaryWriter('runs/' + log_name)
+    print("Saving Tensorboard summary to {}.".format('runs/' + log_name))
     return logger, writer
 
 
@@ -147,7 +164,7 @@ def train(args, train_loader, model, device, criterion, optimizer, logger, write
     model.train()
     volume_id = 0
 
-    for _, (volume, label, class_weight, _) in enumerate(train_loader):
+    for volume, label, class_weight, _ in train_loader:
         volume_id += args.batch_size
 
         volume, label = volume.to(device), label.to(device)
@@ -155,16 +172,20 @@ def train(args, train_loader, model, device, criterion, optimizer, logger, write
         output = model(volume)
 
         loss = criterion(output, label, class_weight)
-        writer.add_scalar('MSE Loss', loss.item(), volume_id)
+        writer.add_scalar('Loss', loss.item(), volume_id)
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
+        print("[Volume %d] train_loss=%0.4f lr=%.5f\n" % (volume_id, loss.item(), optimizer.param_groups[0]['lr']))
+
         logger.write("[Volume %d] train_loss=%0.4f lr=%.5f\n" % (volume_id,
                                                                  loss.item(), optimizer.param_groups[0]['lr']))
 
+        # Save the model if it's time.
         if volume_id % args.volume_save < args.batch_size or volume_id >= args.volume_total:
+            print("Saving the model in {}....".format(args.output + ('/volume_%d.pth' % volume_id)))
             torch.save(model.state_dict(), args.output + ('/volume_%d.pth' % volume_id))
         # Terminate
         if volume_id >= args.volume_total:
@@ -175,18 +196,18 @@ def main():
     args = get_args()
 
     print('0. initial setup')
-    model_io_size, device = init(args)
-    logger, writer = get_logger(args)
+    check_output(args)
+    model_input_shape = get_model_input_shape(args)
+    device = get_preferred_device(args)
+    logger, writer = get_loggers(args)
 
     print('1. setup data')
-    train_loader = get_input(args, model_io_size, 'train')
+    train_loader = get_inputs(args, model_input_shape)
 
     print('2.0 setup model')
-    model = UNet3DPniM2(in_num=1, out_num=3)
-    model = DataParallelWithCallback(model, device_ids=range(args.num_gpu))
-    model = model.to(device)
+    model = load_model(args, device)
 
-    print('Fine-tune? ', bool(args.finetune))
+    print('Fine-tune? {}.'.format(bool(args.finetune)))
     if bool(args.finetune):
         model.load_state_dict(torch.load(args.pre_model))
         print('fine-tune on previous model:')
@@ -197,7 +218,7 @@ def main():
 
     print('3. setup optimizer')
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999),
-                                 eps=1e-08, weight_decay=1e-6, amsgrad=True)
+                                 eps=0.01, weight_decay=1e-6, amsgrad=True)
 
     print('4. start training')
     train(args, train_loader, model, device, criterion, optimizer, logger, writer)
