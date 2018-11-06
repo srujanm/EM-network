@@ -98,8 +98,8 @@ def get_model_input_shape(args):
 def get_inputs(args, model_io_size):
     # two dataLoader, can't be both multiple-cpu (pytorch issue)
     num_worker = args.num_procs
-    img_name = args.img_name.split('@')
-    seg_name = args.seg_name.split('@')
+    img_name = args.train_volume.split('@')
+    seg_name = args.seg_volume.split('@')
 
     # may use datasets from multiple folders
     # should be either one or the same as dir_name
