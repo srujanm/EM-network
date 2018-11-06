@@ -100,7 +100,6 @@ def get_inputs(args, model_io_size):
     num_worker = args.num_procs
     img_name = args.train_volume.split('@')
     seg_name = args.seg_volume.split('@')
-
     # may use datasets from multiple folders
     # should be either one or the same as dir_name
 
@@ -113,10 +112,10 @@ def get_inputs(args, model_io_size):
     for i in range(len(img_name)):
         train_input.append(np.array(h5py.File(img_name[i], 'r')['main']) / 255.0)
         print("Loaded {}.".format(img_name[i]))
-        print("Input volume shape: {}".format(img_name[i].shape))
+        print("Input volume shape: {}".format(train_input[i].shape))
         train_label.append(np.array(h5py.File(seg_name[i], 'r')['main']))
         print("Loaded {}.".format(seg_name[i]))
-        print("Segmentation shape: {}".format(seg_name[i].shape))
+        print("Segmentation shape: {}".format(train_input[i].shape))
         train_input[i] = train_input[i].astype(np.float32)
 
         assert train_input[i].shape == train_label[i].shape
@@ -134,7 +133,6 @@ def get_inputs(args, model_io_size):
 
 
 def load_model(args, device):
-    print(args.model)
     model = UNet3DPniM2(in_num=1, out_num=3)
     model = DataParallelWithCallback(model, device_ids=range(args.num_gpu))
     print("Loading model to device: {}.".format(device))
