@@ -22,6 +22,18 @@ def get_args():
                              'automatically created if already not created.')
     parser.add_argument('-is', '--input-shape', type=str, default='18,160,160',
                         help="Model's input size (shape) formatted 'z, y, x' with no channel number.")
+    parser.add_argument('-xp', '--x-pad', type=int, default=48,
+                        help="Number of voxels for mirror padding the x axis of the test volume. Required for " +
+                             "eliminating the gray grid on the edges of the prediction resulting from the Gaussian" +
+                             "blending. The volume will be padded by this amount on both ends.")
+    parser.add_argument('-yp', '--y-pad', type=int, default=48,
+                        help="Number of voxels for mirror padding the y axis of the test volume. Required for " +
+                             "eliminating the gray grid on the edges of the prediction resulting from the Gaussian" +
+                             "blending. The volume will be padded by this amount on both ends.")
+    parser.add_argument('-zp', '--z-pad', type=int, default=8,
+                        help="Number of voxels for mirror padding the z axis of the test volume. Required for " +
+                             "eliminating the gray grid on the edges of the prediction resulting from the Gaussian" +
+                             "blending. The volume will be padded by this amount on both ends.")
 
     # machine option
     parser.add_argument('-g', '--num-gpu', type=int, default=1,
@@ -62,7 +74,9 @@ def get_model_input_shape(args):
 
 def load_volumes(args, model_input_size):
     in_path = args.test_volume.split('@')
-
+    x_pad = args.x_pad
+    y_pad = args.y_pad
+    z_pad = args.z_pad
     # 1. load data
     print('Number of volumes passed: {}.'.format(len(in_path)))
     test_input = [None] * len(in_path)
@@ -75,6 +89,7 @@ def load_volumes(args, model_input_size):
     print("Loading volumes...")
     for i in range(len(in_path)):
         test_input[i] = np.array(h5py.File(in_path[i], 'r')['main']) / 255.0
+        test_input[i] = np.pad(test_input[i], [[z_pad, z_pad], [y_pad, y_pad], [x_pad, x_pad]], 'reflect')
         print("Loaded {}.".format(in_path[i]))
         print("Volume shape: {}".format(test_input[i].shape))
         result[i] = np.zeros(test_input[i].shape)
@@ -96,14 +111,13 @@ def load_volumes(args, model_input_size):
 
 def gaussian_blend(sz):
     # Gaussian blending
-    print('Calculating Gaussian Blending shape...')
     zz, yy, xx = np.meshgrid(np.linspace(-1, 1, sz[0], dtype=np.float32),
                              np.linspace(-1, 1, sz[1], dtype=np.float32),
                              np.linspace(-1, 1, sz[2], dtype=np.float32), indexing='ij')
 
     dd = np.sqrt(zz * zz + yy * yy + xx * xx)
-    sigma, mu = 0.5, 0.0
-    ww = 1e-4 + np.exp(-((dd - mu) ** 2 / (2.0 * sigma ** 2)))
+    sigma, mu = 0.2, 0.0
+    ww = 1e-6 + np.exp(-((dd - mu) ** 2 / (2.0 * sigma ** 2)))
     print('Gaussian Blending Weight Shape: {}.'.format(ww.shape))
 
     return ww
@@ -116,13 +130,16 @@ def load_model(args, device):
     print("Loading model to device: {}.".format(device))
     model = model.to(device)
     print("Finished.")
-    print("Loading model state from file {}...")
+    print("Loading model state from file {}...".format(args.model))
     model.load_state_dict(torch.load(args.model))
     print("Finished loading.")
     return model
 
 
 def test(args, test_loader, result, weight, model, device, model_io_size):
+    z_pad = args.z_pad
+    y_pad = args.y_pad
+    x_pad = args.x_pad
     # switching model to eval mode
     model.eval()
     volume_id = 0
@@ -131,10 +148,10 @@ def test(args, test_loader, result, weight, model, device, model_io_size):
     print('Starting prediction...')
     start = time.time()
     with torch.no_grad():
-        for i, (pos, volume) in enumerate(test_loader):
-            # Transferring both the model and the input volume to the specified device.
+        for i, (pos, volume, _, _, _) in enumerate(test_loader):
             volume = volume.to(device)
             output = model(volume)
+
             if i == 0:
                 print("I/O information:")
                 print("Input Volume size: {}.".format(volume.size()))
@@ -147,8 +164,6 @@ def test(args, test_loader, result, weight, model, device, model_io_size):
             print('Input Volume max: {}.'.format(volume.max()))
             print('Output Volume min: {}.'.format(output.min()))
             print('Output Volume max: {}.'.format(output.max()))
-            # sz = (3, 8, 224, 224)
-            # sz = (3, 8, 256, 256)
             sz = tuple([3] + list(model_io_size))
             for idx in range(output.size()[0]):
                 st = pos[idx]
@@ -169,7 +184,7 @@ def test(args, test_loader, result, weight, model, device, model_io_size):
         # data = (result[vol_id]*255).astype(np.uint8)
         # data[data < 128] = 0
         hf = h5py.File(args.output + '/volume_' + str(vol_id) + '.h5', 'w')
-        hf.create_dataset('main', data=result[vol_id])
+        hf.create_dataset('main', data=result[vol_id][:, z_pad:-z_pad, y_pad:-y_pad, x_pad:-x_pad])
         hf.close()
         print("Saved vol_id {}.".format(vol_id))
 

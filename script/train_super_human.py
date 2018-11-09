@@ -18,28 +18,32 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+# TODO: Check the "one letter" argument parsing options.
+
 def get_args():
     parser = argparse.ArgumentParser(description='A script for training the PNI 3D UNET model for predicting ' +
                                                  'affinities.')
-    # I/O
-    parser.add_argument('-tv', '--train-volume', default='train-input.h5',
-                        help='Path to the training volume .h5 file(s).')
-    parser.add_argument('-sv', '--seg-volume', default='train-labels.h5',
+    # I/O options------------------------------------------------------------------------------------------------------#
+    parser.add_argument('-iv', '--input-volume', default='train-input.h5',
+                        help='Path to the training volume .h5 file(s). This script assumes that the h5 files have' +
+                        'stored the volume in a dataset called "main".')
+    parser.add_argument('-lv', '--label-volume', default='train-labels.h5',
                         help='Path to the training segmentation .h5 file(s), in order of correspondence to the passed' +
-                        'training volumes. The volume\'s affinity will be generated on the fly as test labels.')
+                        'training volumes. The volume\'s affinity will be generated on the fly as test labels. This ' +
+                        'script assumes that the h5 files have stored the volume in a dataset called "main".')
     parser.add_argument('-o', '--output', default='result/train/',
                         help='Output directory used to save the prediction results as .h5 file(s). The directory is ' +
                              'automatically created if already not created.')
     parser.add_argument('-is', '--input-shape', type=str, default='18,160,160',
                         help="Model's input size (shape) formatted 'z, y, x' with no channel number.")
-
-    # model option
+    parser.add_argument('-tv', '--train-data-ratio', type=float, default=0.7,
+                        help='The ratio of the data used for training. The rest will be used for validation.')
+    # model options----------------------------------------------------------------------------------------------------#
     parser.add_argument('-ft', '--finetune', type=bool, default=False,
                         help='Fine-tune on previous model [Default: False]')
     parser.add_argument('-pm', '--pre-model', type=str, default='',
                         help='Pre-trained model path')
-
-    # optimization option
+    # optimization options---------------------------------------------------------------------------------------------#
     parser.add_argument('-lr', type=float, default=0.01,
                         help='Learning rate')
     parser.add_argument('--volume-total', type=int, default=70000,
@@ -50,28 +54,15 @@ def get_args():
                         help='Number of CUDA-enabled graphics cards to be used to train the model.')
     parser.add_argument('-j', '--num-procs', type=int, default=1,
                         help='Number of processes to be used for the training data loader. The validation data loader' +
-                        '')
+                        'will use only one process to load.')
     parser.add_argument('-bs', '--batch-size', type=int, default=1,
                         help='Batch size.')
-
+    #------------------------------------------------------------------------------------------------------------------#
     args = parser.parse_args()
     return args
 
 
-def init(args):
-    sn = args.output + '/'
-    if not os.path.isdir(sn):
-        os.makedirs(sn)
-    # I/O size in (z,y,x), no specified channel number
-    model_io_size = np.array([int(x) for x in args.model_input.split(',')])
-
-    # select training machine
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    return model_io_size, device
-
-
-def check_output(args):
+def check_output_dir(args):
     """
     Checks whether the output directory exists. If not, creates it.
     """
@@ -95,41 +86,64 @@ def get_model_input_shape(args):
     return shape
 
 
-def get_inputs(args, model_io_size):
-    # two dataLoader, can't be both multiple-cpu (pytorch issue)
-    num_worker = args.num_procs
-    img_name = args.train_volume.split('@')
-    seg_name = args.seg_volume.split('@')
-    # may use datasets from multiple folders
-    # should be either one or the same as dir_name
+def print_volume_stats(volume, name):
+    print('Statistics for {}:'.format(name))
+    print('Shape: {}.'.format(volume.shape))
+    print('Min: {}.'.format(volume.min()))
+    print('Max: {}.'.format(volume.max()))
+    print('Mean: {}.'.format(volume.mean()))
 
-    # 1. load data
-    assert len(img_name) == len(seg_name)
+
+def load_data(args, model_input_shape):
+    # Parse all the input paths to both train and label volumes.------------------------------------------------------ #
+    input_volume_paths = args.input_volume.split('@')
+    label_volume_paths = args.label_volume.split('@')
+    # Parse the ratio of the input data to be used for training.------------------------------------------------------ #
+    train_ratio = args.train_data_ratio
+    # Make sure they are equal in length.----------------------------------------------------------------------------- #
+    assert len(input_volume_paths) == len(label_volume_paths)
+
+    # Load the volumes.----------------------------------------------------------------------------------------------- #
     train_input = []
     train_label = []
-    # original image is in [0, 255], normalize to [0, 1]
+    validation_input = []
+    validation_label = []
     print("Loading volumes...")
-    for i in range(len(img_name)):
-        train_input.append(np.array(h5py.File(img_name[i], 'r')['main']) / 255.0)
-        print("Loaded {}.".format(img_name[i]))
-        print("Input volume shape: {}".format(train_input[i].shape))
-        train_label.append(np.array(h5py.File(seg_name[i], 'r')['main']))
-        print("Loaded {}.".format(seg_name[i]))
-        print("Segmentation shape: {}".format(train_input[i].shape))
-        train_input[i] = train_input[i].astype(np.float32)
+    for i in range(len(input_volume_paths)):
+        input_volume = np.array(h5py.File(input_volume_paths[i], 'r')['main']).astype(np.float32) / 255.0
+        print("Loaded {}.".format(input_volume_paths[i]))
+        print_volume_stats(input_volume, "input_volume")
 
-        assert train_input[i].shape == train_label[i].shape
+        label_volume = np.array(h5py.File(label_volume_paths[i], 'r')['main'])
+        print("Loaded {}.".format(label_volume_paths[i]))
+        print_volume_stats(label_volume, "label_volume")
 
+        assert input_volume.shape == label_volume.shape
+
+        # Divide both input volume and label volume to train and validation sets.------------------------------------- #
+        train_input.append(input_volume[: train_ratio * len(input_volume)])
+        validation_input.append(input_volume[train_ratio * len(input_volume):])
+
+        train_label.append(label_volume[: train_ratio * len(input_volume)])
+        validation_label.append(label_volume[train_ratio * len(input_volume):])
+    # Create Pytorch Datasets.---------------------------------------------------------------------------------------- #
     data_aug = True
     print('Data augmentation: {}.'.format(data_aug))
-    dataset = AffinityDataset(volume=train_input, label=train_label, vol_input_size=model_io_size,
-                              vol_label_size=model_io_size, data_aug=data_aug, mode='train')
-    # to have evaluation during training (two dataloader), has to set num_worker=0
+    train_dataset = AffinityDataset(volume=train_input, label=train_label, vol_input_size=model_input_shape,
+                                    vol_label_size=model_input_shape, data_aug=data_aug, mode='train')
+    valid_dataset = AffinityDataset(volume=validation_input, label=validation_label, vol_input_size=model_input_shape,
+                                    vol_label_size=None, sample_stride=model_input_shape/2, data_aug=None, mode='test')
+    # Create Pytorch DataLoaders.------------------------------------------------------------------------------------- #
     print('Batch size: {}.'.format(args.batch_size))
-    img_loader = torch.utils.data.DataLoader(
-        dataset, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn,
-        num_workers=num_worker, pin_memory=True)
-    return img_loader
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
+                                               shuffle=True, collate_fn=collate_fn,
+                                               num_workers=args.num_procs, pin_memory=True)
+    # TODO: Check whether this will work with args.num_procs.
+    validation_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=args.batch_size,
+                                                    shuffle=False, collate_fn=collate_fn,
+                                                    num_workers=1, pin_memory=True)
+    # ---------------------------------------------------------------------------------------------------------------- #
+    return train_loader, validation_loader
 
 
 def load_model(args, device):
@@ -139,6 +153,11 @@ def load_model(args, device):
     model = model.to(device)
     print("Finished.")
     print("Finished loading.")
+    print('Fine-tune? {}.'.format(bool(args.finetune)))
+    if bool(args.finetune):
+        model.load_state_dict(torch.load(args.pre_model))
+        print('fine-tune on previous model:')
+        print(args.pre_model)
     return model
 
 
@@ -157,12 +176,14 @@ def get_loggers(args):
     return logger, writer
 
 
-def train(args, train_loader, model, device, criterion, optimizer, logger, writer):
+def train(args, train_loader, validation_loader, model, device, criterion, optimizer, logger, writer):
     # switch to train mode
     model.train()
     volume_id = 0
+    # Validation dataset iterator:
+    val_data_iter = iter(validation_loader)
 
-    for volume, label, class_weight, _ in train_loader:
+    for _, volume, label, class_weight, _ in train_loader:
         volume_id += args.batch_size
 
         volume, label = volume.to(device), label.to(device)
@@ -170,7 +191,7 @@ def train(args, train_loader, model, device, criterion, optimizer, logger, write
         output = model(volume)
 
         loss = criterion(output, label, class_weight)
-        writer.add_scalar('Loss', loss.item(), volume_id)
+        writer.add_scalar('Training Loss', loss.item(), volume_id)
 
         optimizer.zero_grad()
         loss.backward()
@@ -181,6 +202,18 @@ def train(args, train_loader, model, device, criterion, optimizer, logger, write
         logger.write("[Volume %d] train_loss=%0.4f lr=%.5f\n" % (volume_id,
                                                                  loss.item(), optimizer.param_groups[0]['lr']))
 
+        # Get the validation result if it's time. (Every Twenty iterations.)------------------------------------------ #
+        if volume_id % 20 < args.batch_size or volume_id >= args.volume_total:
+            _, val_vol, val_label, val_class_weight, _ = next(val_data_iter)
+            model.eval()
+            val_vol, val_label = val_vol.to(device), val_label.to(device)
+            val_class_weight = val_class_weight.to(device)
+            val_out = model(val_vol)
+            val_loss = criterion(val_out, val_label, val_class_weight)
+            writer.add_scalar('Validation Loss', val_loss.item(), volume_id)
+            print("validation_loss=%0.4f lr=%.5f\n" % (val_loss.item(), optimizer.param_groups[0]['lr']))
+            logger.write("validation_loss=%0.4f lr=%.5f\n" % (val_loss.item(), optimizer.param_groups[0]['lr']))
+            model.train()
         # Save the model if it's time.
         if volume_id % args.volume_save < args.batch_size or volume_id >= args.volume_total:
             print("Saving the model in {}....".format(args.output + ('/volume_%d.pth' % volume_id)))
@@ -194,22 +227,16 @@ def main():
     args = get_args()
 
     print('0. initial setup')
-    check_output(args)
+    check_output_dir(args)
     model_input_shape = get_model_input_shape(args)
     device = get_preferred_device(args)
     logger, writer = get_loggers(args)
 
     print('1. setup data')
-    train_loader = get_inputs(args, model_input_shape)
+    train_loader, valid_loader = load_data(args, model_input_shape)
 
     print('2.0 setup model')
     model = load_model(args, device)
-
-    print('Fine-tune? {}.'.format(bool(args.finetune)))
-    if bool(args.finetune):
-        model.load_state_dict(torch.load(args.pre_model))
-        print('fine-tune on previous model:')
-        print(args.pre_model)
 
     print('2.1 setup loss function')
     criterion = WeightedBCELoss()
@@ -219,7 +246,7 @@ def main():
                                  eps=0.01, weight_decay=1e-6, amsgrad=True)
 
     print('4. start training')
-    train(args, train_loader, model, device, criterion, optimizer, logger, writer)
+    train(args, train_loader, valid_loader, model, device, criterion, optimizer, logger, writer)
 
     print('5. finish training')
     logger.close()

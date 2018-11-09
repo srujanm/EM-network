@@ -10,7 +10,7 @@ from .augmentation import IntensityAugment, simpleaug_train_produce
 from .augmentation import apply_elastic_transform, apply_deform
 from em_segLib.aff_util import seg_to_affgraph
 from em_segLib.seg_util import mknhood3d, genSegMalis
-
+from .blend import gaussian_blend
 
 # -- 0. utils --
 def count_volume(data_sz, vol_sz, stride):
@@ -36,14 +36,14 @@ class BasicDataset(torch.utils.data.Dataset):
                  sample_stride=(1, 1, 1),
                  data_aug=False,
                  mode='train'):
-        
+
         self.mode = mode
 
         # data format
         self.input = volume
         self.label = label
         self.data_aug = data_aug  # data augmentation
-        
+
         # samples, channels, depths, rows, cols
         self.input_size = [np.array(x.shape) for x in self.input]  # volume size, could be multi-volume input
         self.vol_input_size = np.array(vol_input_size)  # model input size
@@ -93,15 +93,14 @@ class BasicDataset(torch.utils.data.Dataset):
                     break
                 else:
                     # if random.random() > 0.75:
-                    if random.random() > 0.9:    
-                        break       
+                    if random.random() > 0.9:
+                        break
 
-            # pos = self.getPos(vol_size, index)
+                        # pos = self.getPos(vol_size, index)
 
             # 2. get input volume
             out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
             # out_label = cropVolume(self.label[pos[0]], vol_size, pos[1:])
-            out_label = genSegMalis(out_label, 1)
             # 3. augmentation
             if self.data_aug:  # augmentation
                 # if random.random() > 0.5:
@@ -130,7 +129,7 @@ class BasicDataset(torch.utils.data.Dataset):
 
         elif self.mode == 'test':
             # 1. get volume size
-            vol_size = self.vol_input_size  
+            vol_size = self.vol_input_size
             # test mode
             pos = self.get_pos_test(index)
             out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
@@ -138,7 +137,7 @@ class BasicDataset(torch.utils.data.Dataset):
             out_input = out_input.float()
             out_input = out_input.unsqueeze(0)
 
-            return pos, out_input  
+            return pos, out_input
 
     def __len__(self):  # number of possible position
         return self.sample_num_a
@@ -163,7 +162,7 @@ class BasicDataset(torch.utils.data.Dataset):
         pos[0] = did
         index2 = index - self.sample_num_c[did]
         pos[1:] = self.get_pos_location(index2, self.sample_size_vol[did])
-        return pos 
+        return pos
 
     def get_pos_location(self, index, sz):
         # sz: [y*x, x]
@@ -172,7 +171,7 @@ class BasicDataset(torch.utils.data.Dataset):
         pz_r = index % sz[0]
         pos[1] = np.floor(pz_r/sz[1])
         pos[2] = pz_r % sz[1]
-        return pos 
+        return pos
 
     def get_pos_test(self, index):
         pos = self.index2zyx(index)
@@ -189,21 +188,11 @@ class BasicDataset(torch.utils.data.Dataset):
         pos[0] = did
         tmp_size = count_volume(self.input_size[did], vol_size, np.array(self.sample_stride))
         pos[1:] = [np.random.randint(tmp_size[x]) for x in range(len(tmp_size))]
-        return pos    
+        return pos
 
 
-# -- 1.2 dataset -- 
+    # -- 1.2 dataset --
 # dataset class for polarity input
-
-def gaussian_weight(sz):
-    zz, yy, xx = np.meshgrid(np.linspace(-1, 1, sz[0], dtype=np.float32),
-                     np.linspace(-1, 1, sz[1], dtype=np.float32),
-                     np.linspace(-1, 1, sz[2], dtype=np.float32), indexing='ij')
-
-    dd = np.sqrt(zz*zz + yy*yy + xx*xx)
-    sigma, mu = 0.9, 0.0
-    ww = 1e-4 + np.exp(-((dd-mu)**2 / (2.0 * sigma**2)))
-    return torch.from_numpy(ww.copy())
 
 
 class PolaritySynapseDataset(BasicDataset):
@@ -252,9 +241,9 @@ class PolaritySynapseDataset(BasicDataset):
                     break
                 else:
                     if random.random() > 0.75:
-                        break       
+                        break
 
-            # pos = self.getPos(vol_size, index)
+                        # pos = self.getPos(vol_size, index)
 
             # 2. get input volume
             out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
@@ -283,7 +272,7 @@ class PolaritySynapseDataset(BasicDataset):
             weight_factor = torch.clamp(weight_factor, min=1e-3)
             # the fraction of synaptic cleft pixels, can be 0
             weight = out_label*(1-weight_factor)/weight_factor + (1-out_label)
-            ww = gaussian_weight(sz=vol_size)
+            ww = torch.Tensor(gaussian_blend(vol_size, 0.9))
             weight = weight * ww
 
             # include the channel dimension
@@ -307,14 +296,14 @@ class PolaritySynapseDataset(BasicDataset):
 
         elif self.mode == 'test':
             # 1. get volume size
-            vol_size = self.vol_input_size  
+            vol_size = self.vol_input_size
             # test mode
             pos = self.get_pos_test(index)
             out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
             out_input = torch.Tensor(out_input)
             out_input = out_input.unsqueeze(0)
 
-            return pos, out_input     
+            return pos, out_input
 
 
 class AffinityDataset(BasicDataset):
@@ -325,8 +314,10 @@ class AffinityDataset(BasicDataset):
                  vol_label_size=None,
                  sample_stride=(1, 1, 1),
                  data_aug=False,
-                 mode='train',
-                 activation='sigmoid'):
+                 intensity_aug=False,
+                 elastic_transform=False,
+                 deform_aug=True,
+                 mode='train'):
 
         super(AffinityDataset, self).__init__(volume,
                                               label,
@@ -335,71 +326,57 @@ class AffinityDataset(BasicDataset):
                                               sample_stride,
                                               data_aug,
                                               mode)
-        self.activation = activation
+        self.intensity_aug = intensity_aug
+        self.elastic_transform = elastic_transform
+        self.deform_aug = deform_aug
 
     def __getitem__(self, index):
-        if self.mode == 'train':
-            # 1. get volume size
-            vol_size = self.vol_input_size
+        vol_size = self.vol_input_size
 
-            # reject no-synapse samples with a probability of p
+        # Train Mode Specific Operations:----------------------------------------------------------------------------- #
+        if self.mode == 'train':
             seed = np.random.RandomState(index)
             pos = self.get_pos_seed(vol_size, seed)
-            out_label = crop_volume(self.label[pos[0]], vol_size, pos[1:])
-
-            # pos = self.getPos(vol_size, index)
-
             # 2. get input volume
             out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
-
+            out_label = crop_volume(self.label[pos[0]], vol_size, pos[1:])
             # 3. augmentation
             if self.data_aug:  # augmentation
-                # if random.random() > 0.5:
-                #     out_input, out_label = apply_elastic_transform(out_input, out_label)
                 out_input, out_label = self.simple_aug.multi_mask([out_input, out_label])
-                # if random.random() > 0.75:
-                #     out_input = self.intensity_aug.augment(out_input)
-
-                # shape = (3,) + out_label.shape[-3:]
-                # aff = np.zeros(shape, dtype='float32')
-                # affinitize(out_input, ret=aff[0, ...], dst=(0, 0, 1))
-                # affinitize(out_input, ret=aff[1, ...], dst=(0, 1, 0))
-                # affinitize(out_input, ret=aff[2, ...], dst=(1, 0, 0))
-                out_label = seg_to_affgraph(out_label, mknhood3d(1)).astype(np.float32)
-                if random.random() > 0.5:
+                if random.random() > 0.5 and self.elastic_transform:
+                    out_input, out_label = apply_elastic_transform(out_input, out_label)
+                if random.random() > 0.75 and self.intensity_aug:
+                    out_input = self.intensity_aug.augment(out_input)
+                if random.random() > 0.5 and self.deform_aug:
                     out_input = apply_deform(out_input)
 
-            # 4. class weight
-            # add weight to classes to handle data imbalance
-            # match input tensor shape
-            out_input = torch.from_numpy(out_input.copy())
-            out_label = torch.from_numpy(out_label.copy())
-
-            weight_factor = out_label.float().sum() / torch.prod(torch.tensor(out_label.size()).float())
-            weight_factor = torch.clamp(weight_factor, min=1e-3)
-            # the fraction of synaptic cleft pixels, can be 0
-            weight = out_label*(1-weight_factor)/weight_factor + (1-out_label)
-            ww = gaussian_weight(sz=vol_size)
-            weight = weight * ww
-
-            # include the channel dimension
-            out_input = out_input.unsqueeze(0)
-            # weight = weight.unsqueeze(0)
-            # out_label = out_label.unsqueeze(0)
-            # class_weight = torch.Tensor([(1-weight_factor)/weight_factor, (1-weight_factor)/weight_factor, 1])
-
-            return out_input, out_label, weight, weight_factor
-
+        # Test Mode Specific Operations:------------------------------------------------------------------------------ #
         elif self.mode == 'test':
-            # 1. get volume size
-            vol_size = self.vol_input_size
             # test mode
             pos = self.get_pos_test(index)
             out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
-            out_input = torch.Tensor(out_input)
-            out_input = out_input.unsqueeze(0)
+            out_label = None if self.label is None else crop_volume(self.label[pos[0]], vol_size, pos[1:])
+            # Turn segmentation label into affinity in Pytorch Tensor:---------------------------------------------------- #
+        if out_label is not None:
+            out_label = genSegMalis(out_label, 1)
+            out_label = seg_to_affgraph(out_label, mknhood3d(1)).astype(np.float32)
+            out_label = torch.from_numpy(out_label.copy())
 
-            return pos, out_input
+        # Turn input to Pytorch Tensor, unsqueeze once to include the channel dimension:------------------------------ #
+        out_input = torch.from_numpy(out_input.copy())
+        out_input = out_input.unsqueeze(0)
+
+        # Calculate Weight and Weight Factor:------------------------------------------------------------------------- #
+        weight_factor = None
+        weight = None
+        if out_label is not None:
+            weight_factor = out_label.float().sum() / torch.prod(torch.tensor(out_label.size()).float())
+            weight_factor = torch.clamp(weight_factor, min=1e-3)
+            weight = out_label*(1-weight_factor)/weight_factor + (1-out_label)
+            ww = torch.Tensor(gaussian_blend(vol_size, 0.9))
+            weight = weight * ww
+        # ------------------------------------------------------------------------------------------------------------ #
+        return pos, out_input, out_label, weight, weight_factor
 
 # -- 2. misc --
 # for dataloader
@@ -411,18 +388,17 @@ def collate_fn(batch):
     :param batch:
     :return:
     """
-    out_input, out_label, weights, weight_factor = zip(*batch)
+    pos, out_input, out_label, weights, weight_factor = zip(*batch)
     out_input = torch.stack(out_input, 0)
     out_label = torch.stack(out_label, 0)
     weights = torch.stack(weights, 0)
-
     weight_factor = np.stack(weight_factor, 0)
 
-    return out_input, out_label, weights, weight_factor  
+    return pos, out_input, out_label, weights, weight_factor
 
 
 def collate_fn_test(batch):
-    pos, out_input = zip(*batch)
-    test_sample = torch.stack(out_input, 0)
+    pos, out_input, out_label, weights, weight_factor = zip(*batch)
+    out_input = torch.stack(out_input, 0)
 
-    return pos, test_sample
+    return pos, out_input, out_label, weights, weight_factor
