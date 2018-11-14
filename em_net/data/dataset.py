@@ -356,7 +356,7 @@ class AffinityDataset(BasicDataset):
             pos = self.get_pos_test(index)
             out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
             out_label = None if self.label is None else crop_volume(self.label[pos[0]], vol_size, pos[1:])
-            # Turn segmentation label into affinity in Pytorch Tensor:---------------------------------------------------- #
+        # Turn segmentation label into affinity in Pytorch Tensor:---------------------------------------------------- #
         if out_label is not None:
             out_label = genSegMalis(out_label, 1)
             out_label = seg_to_affgraph(out_label, mknhood3d(1)).astype(np.float32)

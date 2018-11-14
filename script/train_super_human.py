@@ -18,8 +18,6 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-# TODO: Check the "one letter" argument parsing options.
-
 def get_args():
     parser = argparse.ArgumentParser(description='A script for training the PNI 3D UNET model for predicting ' +
                                                  'affinities.')
@@ -133,7 +131,7 @@ def load_data(args, model_input_shape):
     train_dataset = AffinityDataset(volume=train_input, label=train_label, vol_input_size=model_input_shape,
                                     vol_label_size=model_input_shape, data_aug=data_aug, mode='train')
     valid_dataset = AffinityDataset(volume=validation_input, label=validation_label, vol_input_size=model_input_shape,
-                                    vol_label_size=None, sample_stride=model_input_shape/2, data_aug=None, mode='test')
+                                    vol_label_size=model_input_shape, data_aug=None, mode='train')
     # Create Pytorch DataLoaders.------------------------------------------------------------------------------------- #
     print('Batch size: {}.'.format(args.batch_size))
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
@@ -141,7 +139,7 @@ def load_data(args, model_input_shape):
                                                num_workers=args.num_procs, pin_memory=True)
     # TODO: Check whether this will work with args.num_procs.
     validation_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=args.batch_size,
-                                                    shuffle=False, collate_fn=collate_fn,
+                                                    shuffle=True, collate_fn=collate_fn,
                                                     num_workers=1, pin_memory=True)
     # ---------------------------------------------------------------------------------------------------------------- #
     return train_loader, validation_loader
@@ -216,8 +214,8 @@ def train(args, train_loader, validation_loader, model, device, criterion, optim
             logger.write("validation_loss=%0.4f lr=%.5f\n" % (val_loss.item(), optimizer.param_groups[0]['lr']))
             model.train()
             # Save the model if it's time.
-            print("Saving the model in {}....".format(args.output + ('/volume_%04d_%04f.pth' % (volume_id, val_loss))))
-            torch.save(model.state_dict(), args.output + ('/volume_%04d_%04f.pth' % (volume_id, val_loss)))
+            print("Saving the model in {}....".format(args.output + ('/volume_%d_%f.pth' % (volume_id, val_loss))))
+            torch.save(model.state_dict(), args.output + ('/volume_%d_%f.pth' % (volume_id, val_loss)))
         # Terminate
         if volume_id >= args.volume_total:
             break  #
