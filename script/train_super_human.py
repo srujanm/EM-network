@@ -44,7 +44,7 @@ def get_args():
     parser.add_argument('-pm', '--pre-model', type=str, default='',
                         help='Pre-trained model path')
     # optimization options---------------------------------------------------------------------------------------------#
-    parser.add_argument('-lr', type=float, default=0.01,
+    parser.add_argument('-lr', '--learning-rate', type=float, default=0.01,
                         help='Learning rate')
     parser.add_argument('--volume-total', type=int, default=70000,
                         help='Total number of iteration')
