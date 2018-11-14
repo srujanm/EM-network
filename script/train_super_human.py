@@ -204,7 +204,7 @@ def train(args, train_loader, validation_loader, model, device, criterion, optim
                                                                  loss.item(), optimizer.param_groups[0]['lr']))
 
         # Get the validation result if it's time. (Every Twenty iterations.)------------------------------------------ #
-        if volume_id % 20 < args.batch_size or volume_id >= args.volume_total:
+        if volume_id % (args.batch_size * 20 < args.batch_size) or volume_id >= args.volume_total:
             _, val_vol, val_label, val_class_weight, _ = next(val_data_iter)
             model.eval()
             val_vol, val_label = val_vol.to(device), val_label.to(device)
