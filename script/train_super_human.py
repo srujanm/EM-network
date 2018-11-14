@@ -243,7 +243,7 @@ def main():
     criterion = WeightedBCELoss()
 
     print('3. setup optimizer')
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999),
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, betas=(0.9, 0.999),
                                  eps=0.01, weight_decay=1e-6, amsgrad=True)
 
     print('4. start training')
