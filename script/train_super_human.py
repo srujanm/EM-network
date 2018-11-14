@@ -204,7 +204,7 @@ def train(args, train_loader, validation_loader, model, device, criterion, optim
                                                                  loss.item(), optimizer.param_groups[0]['lr']))
 
         # Get the validation result if it's time. (Every Twenty iterations.)------------------------------------------ #
-        if volume_id % (args.batch_size * 20) < args.batch_size or volume_id >= args.volume_total:
+        if volume_id % args.volume_save < args.batch_size or volume_id >= args.volume_total:
             _, val_vol, val_label, val_class_weight, _ = next(val_data_iter)
             model.eval()
             val_vol, val_label = val_vol.to(device), val_label.to(device)
@@ -215,10 +215,9 @@ def train(args, train_loader, validation_loader, model, device, criterion, optim
             print("validation_loss=%0.4f lr=%.5f\n" % (val_loss.item(), optimizer.param_groups[0]['lr']))
             logger.write("validation_loss=%0.4f lr=%.5f\n" % (val_loss.item(), optimizer.param_groups[0]['lr']))
             model.train()
-        # Save the model if it's time.
-        if volume_id % args.volume_save < args.batch_size or volume_id >= args.volume_total:
-            print("Saving the model in {}....".format(args.output + ('/volume_%d.pth' % volume_id)))
-            torch.save(model.state_dict(), args.output + ('/volume_%d.pth' % volume_id))
+            # Save the model if it's time.
+            print("Saving the model in {}....".format(args.output + ('/volume_%04d_%04f.pth' % (volume_id, val_loss))))
+            torch.save(model.state_dict(), args.output + ('/volume_%04d_%04f.pth' % (volume_id, val_loss)))
         # Terminate
         if volume_id >= args.volume_total:
             break  #
