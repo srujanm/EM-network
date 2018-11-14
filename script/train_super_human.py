@@ -121,11 +121,12 @@ def load_data(args, model_input_shape):
         assert input_volume.shape == label_volume.shape
 
         # Divide both input volume and label volume to train and validation sets.------------------------------------- #
-        train_input.append(input_volume[: train_ratio * len(input_volume)])
-        validation_input.append(input_volume[train_ratio * len(input_volume):])
+        div_point = int(train_ratio * len(input_volume))
+        train_input.append(input_volume[: div_point])
+        validation_input.append(input_volume[div_point:])
 
-        train_label.append(label_volume[: train_ratio * len(input_volume)])
-        validation_label.append(label_volume[train_ratio * len(input_volume):])
+        train_label.append(label_volume[: div_point])
+        validation_label.append(label_volume[div_point:])
     # Create Pytorch Datasets.---------------------------------------------------------------------------------------- #
     data_aug = True
     print('Data augmentation: {}.'.format(data_aug))
