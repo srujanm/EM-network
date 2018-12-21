@@ -319,7 +319,10 @@ class AffinityDataset(BasicDataset):
                  deform_aug=True,
                  ignore_zero=True,
                  mode='train'):
-
+    	"""
+    	Additional arg over master version:
+    		ignore_zero (bool): determines whether segments with 0 labels are weighted during training
+    	"""
         super(AffinityDataset, self).__init__(volume,
                                               label,
                                               vol_input_size,
