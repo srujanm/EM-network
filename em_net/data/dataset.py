@@ -317,6 +317,7 @@ class AffinityDataset(BasicDataset):
                  intensity_aug=False,
                  elastic_transform=False,
                  deform_aug=True,
+                 ignore_zero=True,
                  mode='train'):
 
         super(AffinityDataset, self).__init__(volume,
@@ -329,17 +330,34 @@ class AffinityDataset(BasicDataset):
         self.intensity_aug = intensity_aug
         self.elastic_transform = elastic_transform
         self.deform_aug = deform_aug
+        self.ignore_zero = ignore_zero
 
     def __getitem__(self, index):
+
         vol_size = self.vol_input_size
 
         # Train Mode Specific Operations:----------------------------------------------------------------------------- #
         if self.mode == 'train':
-            seed = np.random.RandomState(index)
-            pos = self.get_pos_seed(vol_size, seed)
-            # 2. get input volume
-            out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
-            out_label = crop_volume(self.label[pos[0]], vol_size, pos[1:])
+            if self.ignore_zero:
+                seed = np.random.RandomState(index)
+                pos = self.get_pos_seed(vol_size, seed)
+                #print("Extracting region:")
+                #print(pos)
+                # 2. get input volume
+                out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
+                out_label = crop_volume(self.label[pos[0]], vol_size, pos[1:])
+            else:
+                seg_not_found = True
+                # find a volume for training that is not entirely in segment 0
+                while seg_not_found:
+                    seed = np.random.RandomState(index)                                      
+                    pos = self.get_pos_seed(vol_size, seed)
+                    out_label = crop_volume(self.label[pos[0]], vol_size, pos[1:])
+                    nz_flag = (out_label>0).astype(int) # flag for nonzero segments             
+                    nz_flag = torch.from_numpy(nz_flag.copy())
+                    nz_frac = [nz_flag.float()[i,:,:].sum() / torch.prod(torch.tensor(nz_flag.size()[1:]).float()) for i in range(nz_flag.size()[0])] # fraction of voxels not in segment 0 in each slice of volume
+                    seg_not_found = any([nz_frac_sl < 0.8 for nz_frac_sl in nz_frac])
+                out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
             # 3. augmentation
             if self.data_aug:  # augmentation
                 out_input, out_label = self.simple_aug.multi_mask([out_input, out_label])
@@ -356,11 +374,12 @@ class AffinityDataset(BasicDataset):
             pos = self.get_pos_test(index)
             out_input = crop_volume(self.input[pos[0]], vol_size, pos[1:])
             out_label = None if self.label is None else crop_volume(self.label[pos[0]], vol_size, pos[1:])
+            out_seg = None
         # Turn segmentation label into affinity in Pytorch Tensor:---------------------------------------------------- #
         if out_label is not None:
-            out_label = genSegMalis(out_label, 1)
-            out_label = seg_to_affgraph(out_label, mknhood3d(1)).astype(np.float32)
-            out_label = torch.from_numpy(out_label.copy())
+            out_seg = genSegMalis(out_label, 1)
+            out_seg = seg_to_affgraph(out_seg, mknhood3d(1)).astype(np.float32)
+            out_seg = torch.from_numpy(out_seg.copy())
 
         # Turn input to Pytorch Tensor, unsqueeze once to include the channel dimension:------------------------------ #
         out_input = torch.from_numpy(out_input.copy())
@@ -370,13 +389,25 @@ class AffinityDataset(BasicDataset):
         weight_factor = None
         weight = None
         if out_label is not None:
-            weight_factor = out_label.float().sum() / torch.prod(torch.tensor(out_label.size()).float())
-            weight_factor = torch.clamp(weight_factor, min=1e-3)
-            weight = out_label*(1-weight_factor)/weight_factor + (1-out_label)
+            if self.ignore_zero:
+                weight_factor = out_seg.float().sum() / torch.prod(torch.tensor(out_seg.size()).float()) # fraction of 1-voxels in affinity
+                weight_factor = torch.clamp(weight_factor, min=1e-3)
+                weight = out_seg*(1-weight_factor)/weight_factor + (1-out_seg)
+            else:
+                if self.data_aug: # find non-zero flag again, because it may have transformed after augmentation
+                	nz_flag = out_label>0 # flag for segments with non-zero labels
+                    nz_flag = binary_dilation(nz_flag, iterations=2).astype(int) # connnectivity 2 binary dilation
+                    nz_flag = torch.from_numpy(nz_flag.copy())
+                nz_stacked = torch.stack([nz_flag, nz_flag, nz_flag], dim=0) # 3 dims for 3 axes
+                weight_factor = out_seg.float().sum() / nz_stacked.float().sum() # fraction of 1-voxels in affinity ignoring 0 segment
+                weight_factor = torch.clamp(weight_factor, min=1e-3)
+                weight = out_seg*(1-weight_factor)/weight_factor + (1-out_seg)
+                weight = nz_stacked.float() * weight # essentially 0 weight for 0 segment
+                #weight = weight*1/nz_frac # TODO: normalize loss to number of NZ segment voxels 
             ww = torch.Tensor(gaussian_blend(vol_size, 0.9))
             weight = weight * ww
         # ------------------------------------------------------------------------------------------------------------ #
-        return pos, out_input, out_label, weight, weight_factor
+        return pos, out_input, out_seg, weight, weight_factor
 
 # -- 2. misc --
 # for dataloader
