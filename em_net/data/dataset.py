@@ -319,10 +319,10 @@ class AffinityDataset(BasicDataset):
                  deform_aug=True,
                  ignore_zero=True,
                  mode='train'):
-    	"""
-    	Additional arg over master version:
-    		ignore_zero (bool): determines whether segments with 0 labels are weighted during training
-    	"""
+        """
+        Additional arg over master version:
+            ignore_zero (bool): determines whether segments with 0 labels are weighted during training
+        """
         super(AffinityDataset, self).__init__(volume,
                                               label,
                                               vol_input_size,
@@ -398,7 +398,7 @@ class AffinityDataset(BasicDataset):
                 weight = out_seg*(1-weight_factor)/weight_factor + (1-out_seg)
             else:
                 if self.data_aug: # find non-zero flag again, because it may have transformed after augmentation
-                	nz_flag = out_label>0 # flag for segments with non-zero labels
+                    nz_flag = out_label>0 # flag for segments with non-zero labels
                     nz_flag = binary_dilation(nz_flag, iterations=2).astype(int) # connnectivity 2 binary dilation
                     nz_flag = torch.from_numpy(nz_flag.copy())
                 nz_stacked = torch.stack([nz_flag, nz_flag, nz_flag], dim=0) # 3 dims for 3 axes
