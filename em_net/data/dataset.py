@@ -10,6 +10,7 @@ from .augmentation import IntensityAugment, simpleaug_train_produce
 from .augmentation import apply_elastic_transform, apply_deform
 from em_segLib.aff_util import seg_to_affgraph
 from em_segLib.seg_util import mknhood3d, genSegMalis
+from scipy.ndimage.morphology import binary_dilation
 from .blend import gaussian_blend
 
 # -- 0. utils --
