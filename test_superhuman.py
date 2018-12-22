@@ -7,7 +7,7 @@ import argparse
 import torch
 import torch.utils.data
 from em_net.data import AffinityDataset, collate_fn_test
-from em_net.model.model_seg import UNetFiber
+from em_net.model.model_seg import UNet3DPniM2
 from em_net.libs.sync import DataParallelWithCallback
 
 # GLOBAL: memory usage                                                                                                            
@@ -139,7 +139,7 @@ def gaussian_blend(sz):
 
 def load_model(args, device):
     print(args.model)
-    model = UNetFiber(in_num=1, out_num=3)
+    model = UNet3DPniM2(in_num=1, out_num=3)
     model = DataParallelWithCallback(model, device_ids=range(args.num_gpu))
     print("Loading model to device: {}.".format(device))
     model = model.to(device)

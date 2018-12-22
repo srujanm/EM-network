@@ -10,7 +10,7 @@ from tensorboardX import SummaryWriter
 
 from em_net.data import AffinityDataset, collate_fn
 from em_net.model.loss import WeightedBCELoss
-from em_net.model.model_seg import UNetFiber
+from em_net.model.model_seg import UNet3DPniM2
 from em_net.libs.sync import DataParallelWithCallback
 import os
 import sys
@@ -167,7 +167,7 @@ def load_data(args, model_input_shape, n_slices, ignore_zero=False):
 
 
 def load_model(args, device):
-    model = UNetFiber(in_num=1, out_num=3)
+    model = UNet3DPniM2(in_num=1, out_num=3)
     model = DataParallelWithCallback(model, device_ids=range(args.num_gpu))
     print("Loading model to device: {}.".format(device))
     model = model.to(device)

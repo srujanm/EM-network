@@ -156,6 +156,47 @@ class UNet3DPniM2(nn.Module):  # deployed PNI model
             x = self.upC[i](x)
         return torch.sigmoid(x)
 
+class UNetFiber(nn.Module):
+    # modified version of UNet3DPniM2 for fiber affinities
+    def __init__(self, in_num=1, out_num=3, filters=(28, 36, 48, 64), batch_norm=True, relu_opt=0):
+        super(UNetFiber, self).__init__()
+        self.filters = filters
+        self.io_num = [in_num, out_num]
+        self.res_num = len(filters) - 2
+        self.seq_num = (self.res_num + 1) * 2 + 1
+
+        self.downC = nn.ModuleList(
+            [unet_m2_conv([in_num], [filters[0]], [(1, 5, 5)], [(0, 2, 2)], [1], [False], [batch_norm], [relu_opt])]
+            + [UNetM2BasicBlock(filters[x], filters[x + 1], True, batch_norm, relu_opt)
+               for x in range(self.res_num)])
+        self.downS = nn.ModuleList([nn.MaxPool3d((1, 2, 2), (1, 2, 2))] * (self.res_num + 1))
+        self.center = UNetM2BasicBlock(filters[-2], filters[-1], True, batch_norm, relu_opt)
+        self.upS = nn.ModuleList(
+            [nn.Sequential(
+                nn.ConvTranspose3d(filters[self.res_num + 1 - x], filters[self.res_num + 1 - x], (1, 2, 2), (1, 2, 2),
+                                   groups=filters[self.res_num + 1 - x], bias=False),
+                nn.Conv3d(filters[self.res_num + 1 - x], filters[self.res_num - x], kernel_size=(1, 1, 1), stride=1,
+                          bias=True))
+                for x in range(self.res_num + 1)])
+        # initialize upsample
+        for x in range(self.res_num + 1):
+            self.upS[x]._modules['0'].weight.data.fill_(1.0)
+
+        self.upC = nn.ModuleList(
+            [UNetM2BasicBlock(filters[self.res_num - x], filters[self.res_num - x], True, batch_norm, relu_opt)
+             for x in range(self.res_num)]
+            + [nn.Conv3d(filters[0], out_num, kernel_size=(1, 5, 5), stride=1, padding=(0, 2, 2), bias=True)])
+
+    def forward(self, x):
+        down_u = [None] * (self.res_num + 1)
+        for i in range(self.res_num + 1):
+            down_u[i] = self.downC[i](x)
+            x = self.downS[i](down_u[i])
+        x = self.center(x)
+        for i in range(self.res_num + 1):
+            x = down_u[self.res_num - i] + self.upS[i](x)
+            x = self.upC[i](x)
+        return torch.sigmoid(x)
 
 class UNet3DM2_V2(nn.Module):
     # changes from unet3D_m2
