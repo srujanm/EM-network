@@ -158,7 +158,7 @@ class UNet3DPniM2(nn.Module):  # deployed PNI model
 
 class UNetFiber(nn.Module):
     # modified version of UNet3DPniM2 for fiber affinities
-    def __init__(self, in_num=1, out_num=3, filters=(28, 36, 48, 64), batch_norm=True, relu_opt=0):
+    def __init__(self, in_num=1, out_num=3, filters=(7, 9, 12, 16), batch_norm=True, relu_opt=0):
         super(UNetFiber, self).__init__()
         self.filters = filters
         self.io_num = [in_num, out_num]
