@@ -184,7 +184,7 @@ class UNetFiberBasicBlock(nn.Module):
 
 class UNetFiber(nn.Module):
     # modified version of UNet3DPniM2 for fiber affinities                                                                                    
-    def __init__(self, in_num=1, out_num=3, filters=(7, 9, 12, 16), batch_norm=True, relu_opt=0):                                             
+    def __init__(self, in_num=1, out_num=3, filters=(28,36,48,64), batch_norm=True, relu_opt=0):      
         super(UNetFiber, self).__init__()                                                                                                     
         self.filters = filters                                                                                                                
         self.io_num = [in_num, out_num]                                                                                                       
@@ -193,8 +193,8 @@ class UNetFiber(nn.Module):
                                                                                                                                               
         self.downC = nn.ModuleList(                                                                                                           
             [unet_m2_conv([in_num], [filters[0]], [(1, 5, 5)], [(0, 2, 2)], [1], [False], [batch_norm], [relu_opt])] # 2D 1x5x5 linear kernels
-            + [UNetFiberBasicBlock(filters[0], filters[1], dims=2, batch_norm=batch_norm, relu_opt=relu_opt)] # 2D resnet module                                      
-            + [UNetFiberBasicBlock(filters[1], filters[2], dims=2, batch_norm=batch_norm, relu_opt=relu_opt)]) # 2D resnet module                                      
+            + [UNetFiberBasicBlock(filters[0], filters[1], dims=1, batch_norm=batch_norm, relu_opt=relu_opt)] # 2D resnet module                                      
+            + [UNetFiberBasicBlock(filters[1], filters[2], dims=1, batch_norm=batch_norm, relu_opt=relu_opt)]) # 2D resnet module                                      
         self.downS = nn.ModuleList([nn.MaxPool3d((1, 2, 2), (1, 2, 2))] * (self.res_num + 1))                                                 
         self.center = UNetFiberBasicBlock(filters[-2], filters[-1], dims=1, batch_norm=batch_norm, relu_opt=relu_opt) # 1D resnet module                               
         self.upS = nn.ModuleList(                                                                                                             
@@ -209,8 +209,8 @@ class UNetFiber(nn.Module):
             self.upS[x]._modules['0'].weight.data.fill_(1.0)                                                                                  
                                                                                                                                               
         self.upC = nn.ModuleList(                                                                                                             
-            [UNetFiberBasicBlock(filters[2], filters[2], dims=2, batch_norm=batch_norm, relu_opt=relu_opt)] # 2D resenet module
-            + [UNetFiberBasicBlock(filters[1], filters[1], dims=2, batch_norm=batch_norm, relu_opt=relu_opt)] # 2D resnet module                                                                                           
+            [UNetFiberBasicBlock(filters[2], filters[2], dims=1, batch_norm=batch_norm, relu_opt=relu_opt)] # 2D resenet module
+            + [UNetFiberBasicBlock(filters[1], filters[1], dims=1, batch_norm=batch_norm, relu_opt=relu_opt)] # 2D resnet module          
             + [nn.Conv3d(filters[0], out_num, kernel_size=(1, 5, 5), stride=1, padding=(0, 2, 2), bias=True)])
 
     def forward(self, x):
